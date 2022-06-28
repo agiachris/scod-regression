@@ -34,7 +34,7 @@ import scod
 
 
 ## Citation
-This repository has an MIT [License](). If you find this package helpful, please consider citing:
+This repository has an MIT [License](https://github.com/agiachris/scod-regression/blob/main/LICENSE). If you find this package helpful, please consider citing:
 ```
 @inproceedings{sharma2021sketching,
   title={Sketching curvature for efficient out-of-distribution detection for deep neural networks},
@@ -45,4 +45,3 @@ This repository has an MIT [License](). If you find this package helpful, please
   organization={PMLR}
 }
 ```
-
