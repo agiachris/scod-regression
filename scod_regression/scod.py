@@ -98,8 +98,7 @@ class SCOD(nn.Module):
         output_dim = params[-1].size(-1)
 
         # Incrementally build sketch from samples
-        for i, sample in enumerate(dataloader):
-            
+        for _, sample in enumerate(dataloader):            
             inputs, labels, batch_size = \
                 self._format_sample(sample, input_keys=input_keys, target_key=target_key)           
 
@@ -115,43 +114,11 @@ class SCOD(nn.Module):
             assert L_w.dim() == 3 and L_w.size() == (batch_size, output_dim, self._num_params)
             sketch.low_rank_update(L_w.transpose(2, 1))
         
-        # Compute top-k eigenvalue and basis
-        del L
-        eigs, basis = sketch.eigs()
-        del sketch
-
-        # Store top-k eigenvalue and basis
+        # Compute and store top-k eigenvalue and basis
+        del L_w; eigs, basis = sketch.eigs(); del sketch
         self._gauss_newton_eigs.data = torch.clamp_min(eigs[-self._num_eigs:], min=torch.zeros(1)).to(self._device)
         self._gauss_newton_basis.data = basis[:, -self._num_eigs:].to(self._device)
         self._configured = True
-    
-    def _compute_fischer_stateless_model(self,
-                                         fmodel: FunctionalModuleWithBuffers, 
-                                         params: Tuple[nn.Parameter],
-                                         buffers: Tuple[torch.Tensor], 
-                                         *input: Tuple[torch.Tensor],
-                                         label: torch.Tensor=None,
-                                         ) -> torch.Tensor:
-        """Compute the models weight Fischer for a single sample. There are two cases:
-        1) Use output Fischer: constribution C = (J_l.T @ J_l), J_l = d(-log p(y|x))/dw
-        2) Use empirical Fischer: constribution C = (J_f.T @ L_theta @ L_theta.T @ J_f), J_f = df(x)/dw
-
-        args:
-            fmodel: functional form of model casted from nn.Module
-            params: parameters of functional model
-            buffers: buffers of the functional model
-            *input: tuple of input tensors
-            label: target tensors to compute loss (default: None)
-        
-        returns:
-            pre_jac_factor: factor to compute the weight Jacobian via reverse auto-differentiation
-        """
-        input = [x.unsqueeze(0) for x in input]
-        theta = fmodel(params, buffers, *input)
-        pre_jac_factor = -self._output_dist.validated_log_prob(theta, label.unsqueeze(0)) \
-            if self._use_empirical_fischer else self._output_dist.apply_sqrt_F(theta)
-        return pre_jac_factor.squeeze(0)
-
 
     # def forward(self, inputs, 
     #                   input_keys=None, 
@@ -205,29 +172,32 @@ class SCOD(nn.Module):
 
     #     return dict(output=self.output_dist.output(mu), unc=unc, var=var)
 
-    # def _get_weight_jacobian(self, vec, batch_size, detach=True):
-    #     """Returns b x d x nparam matrix, with each row of each d x nparam matrix being d(vec[i])/d(weights)
-    #     """
-    #     assert vec.dim() == 1
-    #     grad_vecs = []
-    #     autograd_hacks.clear_model_gradients(self._model)
-    #     for j in range(vec.size(0)):
-    #         vec[j].backward(retain_graph=True, create_graph=not detach)
-    #         autograd_hacks.compute_grad1(self._model)
-    #         g = self._get_grad_vec(batch_size)
-    #         if detach: g = g.detach()
-    #         grad_vecs.append(g)
-    #         autograd_hacks.clear_model_gradients(self._model)
+    def _compute_fischer_stateless_model(self,
+                                         fmodel: FunctionalModuleWithBuffers, 
+                                         params: Tuple[nn.Parameter],
+                                         buffers: Tuple[torch.Tensor], 
+                                         *input: Tuple[torch.Tensor],
+                                         label: torch.Tensor=None,
+                                         ) -> torch.Tensor:
+        """Compute the models weight Fischer for a single sample. There are two cases:
+        1) Use output Fischer: constribution C = (J_l.T @ J_l), J_l = d(-log p(y|x))/dw
+        2) Use empirical Fischer: constribution C = (J_f.T @ L_theta @ L_theta.T @ J_f), J_f = df(x)/dw
 
-    #     return torch.stack(grad_vecs).transpose(1, 0)
-
-    # def _get_grad_vec(self, batch_size):
-    #     """Returns gradient of NN parameters flattened into a vector
-    #     assumes backward() has been called so each parameters grad attribute
-    #     has been updated
-    #     """
-    #     grads = [p.grad1.contiguous().view(batch_size, -1) for p in self.trainable_params]
-    #     return torch.cat(grads, dim=1)
+        args:
+            fmodel: functional form of model casted from nn.Module
+            params: parameters of functional model
+            buffers: buffers of the functional model
+            *input: tuple of input tensors
+            label: target tensors to compute loss (default: None)
+        
+        returns:
+            pre_jac_factor: factor to compute the weight Jacobian via reverse auto-differentiation
+        """
+        input = [x.unsqueeze(0) for x in input]
+        theta = fmodel(params, buffers, *input)
+        pre_jac_factor = -self._output_dist.validated_log_prob(theta, label.unsqueeze(0)) \
+            if self._use_empirical_fischer else self._output_dist.apply_sqrt_F(theta)
+        return pre_jac_factor.squeeze(0)
 
     def _format_sample(self, 
                        x: Union[Dict[torch.Tensor], Tuple[torch.Tensor]], 
@@ -291,7 +261,8 @@ class SCOD(nn.Module):
     @staticmethod
     def _format_grad(x: torch.Tensor,
                      batch_size: int,
-                     output_dim: int
+                     output_dim: int,
+                     detach: bool=True
                      ) -> torch.Tensor:
         """Returns flattenned, contiguous Jacobian.
         
@@ -299,10 +270,11 @@ class SCOD(nn.Module):
             x: Jacobian of size (B x d x n1 x n2 x ...)
             batch_size: batch_size
             output_dim: dimension of the output
+            detach: remove Jacobian from computation graph
 
         returns:
             g: formatted Jacobian of shape (B x d x N)
         """
         x = [_x.contiguous().view(batch_size, output_dim, -1) for _x in x]
         g = torch.cat(x, dim=-1)
-        return g
+        return g.detach() if detach else g
