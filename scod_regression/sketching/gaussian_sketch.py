@@ -46,7 +46,6 @@ class SinglePassPCA:
         
         args:
             v: matrix of size (B x N x d)
-            weight: scaling vector of size (B)
         """
         assert v.dim() == 3, "v must be of dimension 3"
         v = v.to(self._device)
