@@ -132,7 +132,7 @@ class SCOD(nn.Module):
                 input_keys: List[str]=None,
                 detach: bool=True,
                 quantity: str="all",
-                ) -> Dict[torch.Tensor]:
+                ) -> Tuple[torch.Tensor]:
         """Computes the desired uncertainty quantity of samples, e.g., the posterior predictive 
         variance or the local KL-divergence of the model on the test input.
 
@@ -268,7 +268,7 @@ class SCOD(nn.Module):
         return pre_jacobians.squeeze(0), outputs.squeeze(0)
 
     def _format_sample(self, 
-                       x: Union[Dict[torch.Tensor], Tuple[torch.Tensor]], 
+                       x: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]], 
                        input_keys: List[str]=None, 
                        target_key: str=None
                        ) -> Tuple[List[torch.Tensor], torch.Tensor, int]:
