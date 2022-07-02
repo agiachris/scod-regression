@@ -12,7 +12,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="scod",    
+    name="scod_regression",    
     version="0.1.0",
     author="Apoorva Sharma, Christopher Agia",
     author_email="apoorva@stanford.edu, cagia@cs.stanford.edu",
