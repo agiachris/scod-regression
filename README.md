@@ -31,11 +31,10 @@ We refer the reader to the [original repository](https://github.com/StanfordASL/
 1. **Posterior Predictive Variance.** 
 Our algorithms are designed for multi-dimensional regression tasks; we thereby assume a Gaussian likelihood function with unit-variance. 
 Analytic solutions to the Gaussian-distributed posterior weight and predictive distributions are derived by imposing a Gaussian isotropic prior over the neural network weights.
-The posterior predictive variance quantifies the model's epistemic uncertainty.
+The predictive variance quantifies the model's epistemic uncertainty.
 2. **Local KL-Divergence.**
 Under these guiding assumptions, we compute the expectation of the local KL-divergence in the output distribution over delta weight perturbations by integrating over the posterior distribution. 
-This offers an uncertainty metric akin to the curvature of output distribution manifold under small weight perturbations, proportional to the Fischer Information Matrix. 
-
+This offers an uncertainty metric akin to the curvature of output distribution manifold under small weight perturbations - the curvature is proportional to the Fischer Information Matrix. 
 
 ```python 
 import torch
