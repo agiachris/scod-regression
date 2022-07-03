@@ -6,7 +6,7 @@ An implementation of Sketching Curvature for Efficient Out-of-Distribution Detec
 
 ## Overview
 Notable modifications to the [original repository](https://github.com/StanfordASL/SCOD) are made to support batched pre-processing and inference mechanics leveraging [functorch](https://pytorch.org/functorch/stable/). 
-This results in processing speeds upwards of 10x, extending SCOD's use from a test-time OoD detection system to an effective train-time module.
+This results in **processing speeds upwards of 10x**, extending SCOD's use from a test-time OoD detection system to an effective train-time module.
 
 
 ## Setup
@@ -24,12 +24,54 @@ cd scod-module && pip install .
 
 
 ## Usage
-Description of usage.
+In a nutshell, scod-regression produces two quantities of epistemic uncertainty described below. 
+Several assumptions are currently built into the code-base that may be restrictive for some applications.
+We refer the reader to the [original repository](https://github.com/StanfordASL/SCOD) should your use-case require a larger support of likelihood functions or prior distributions.
+
+1. **Posterior Predictive Variance.** 
+Our algorithms are designed for multi-dimensional regression tasks, and hence, a Gaussian likelihood function with unit-variance is assumed. 
+By further choosing a Gaussian isotropic prior over the neural network weights, we obtain analytic solutions to the posterior weight and predictive posterior distributions. 
+
+
+2. **Local KL-Divergence.**
+Under the same guiding assumptions, we compute the expectation of the local KL-divergence in the output distribution over delta weight perturbations by integrating over the posterior distribution. 
+This offers an uncertainty metric akin to the curvature of output distribution manifold under small weight perturbations, which is proportional to the Fischer Information Matrix. 
+
+
+
+
 ```python 
 import torch
-import scod
+from torch import nn
+from scod_regression import SCOD
 
-# TODO: show basic usage
+# Example SCOD config
+config = {
+  "output_dist": "NormalMeanParamLayer",
+  "sketch": "SRFTSinglePassPCA",
+  "num_eigs": 50,
+}
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+input_keys = ["states", "actions"]
+dataloader_kwargs = {"batch_size": 128, "shuffle": True}
+
+# Instantiate Q-network and wrap with SCOD
+q_network = ContinuousMLPCritic().to(device)
+scod = SCOD(q_network, config=config, device=device)
+
+# Computing low-rank approximation of dataset Fischer
+dataset = DatasetClass()
+scod.process_dataset(dataset, input_keys, dataloader_kwargs=dataloader_kwargs)
+
+# Add batch dimension to random sample
+sample = dataset.__getitem__()
+for k, v in sample.items():
+    if torch.is_tensor(v):
+        sample[k] = v.unsqueeze(0)
+
+# Compute out-of-distribution quantities
+q_values, post_pred_var, local_kl = scod(sample, input_keys, detach=False)
+
 ``` 
 
 
