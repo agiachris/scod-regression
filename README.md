@@ -55,7 +55,7 @@ SCOD subclassses nn.Module and implements a `forward()` function.
 By default, calling it on a batch of test samples computes (in parallel) the model's outputs (B x d), the posterior predictive variances (B x d), and the local KL-divergences (B x 1). For increased efficiency, the `mode` argument can be set to the sole desired uncertainty quantity: `mode=1` for variance and `mode=2` for KL-divergence.
 
 
-The metrics' connection to the computation graph can be maintained by specifying `detach=False`, supporting differentiability of  downstream, uncertainty-informed objectives through SCOD.
+The uncertainty metrics' connection to the computation graph can be maintained by specifying `detach=False`, supporting differentiability of downstream, uncertainty-informed objectives through SCOD.
 
 #### Example: Offline Reinforcement Learning
 ```python 
