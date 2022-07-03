@@ -24,18 +24,19 @@ cd scod-module && pip install .
 
 
 ## Usage
-In a nutshell, scod-regression produces two quantities of epistemic uncertainty described below. 
+In a nutshell, scod-regression produces two related measures of epistemic uncertainty. 
 Several assumptions are currently built into the code-base that may be restrictive for some applications.
 We refer the reader to the [original repository](https://github.com/StanfordASL/SCOD) should your use-case require a larger support of likelihood functions or prior distributions.
 
 1. **Posterior Predictive Variance.** 
-Our algorithms are designed for multi-dimensional regression tasks, and hence, a Gaussian likelihood function with unit-variance is assumed. 
-By further choosing a Gaussian isotropic prior over the neural network weights, we obtain analytic solutions to the posterior weight and predictive posterior distributions. 
+Our algorithms are designed for multi-dimensional regression tasks; we thereby assume a Gaussian likelihood function with unit-variance. 
+By imposing a Gaussian isotropic prior over the neural network weights, we obtain analytic solutions to the Gaussian-distributed posterior weight and predictive posterior distributions. 
 
 
 2. **Local KL-Divergence.**
 Under the same guiding assumptions, we compute the expectation of the local KL-divergence in the output distribution over delta weight perturbations by integrating over the posterior distribution. 
 This offers an uncertainty metric akin to the curvature of output distribution manifold under small weight perturbations, which is proportional to the Fischer Information Matrix. 
+
 
 
 
