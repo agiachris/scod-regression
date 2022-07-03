@@ -40,21 +40,21 @@ This offers an uncertainty metric akin to the curvature of output distribution m
 ### Instructions
 The SCOD class is made accessible by scod-regression and can be used in three simple steps: (1) wrap the PyTorch model (nn.Module) with SCOD; (2) pre-compute the posterior quantities over a dataset of *in-distribution* samples; (3) compute *out-of-distribution* metrics (and model outputs) over test samples.
 
-#### SCOD configuration
-The two recommended ways to configure SCOD is (a) the rank-*k* decomposition of the dataset FIM used in the Laplace approximation of the posterior distribution and (b) the matrix sketching techniques used to embed the FIM in a memory efficient form.
+#### SCOD Configuration
+The two recommended ways to configure SCOD is (a) the rank-*k* decomposition of the dataset FIM and (b) the matrix sketching techniques used to embed the FIM in a memory efficient form.
 These correspond to `"num_eigs"` and `"sketch"` keys in a config dictionary passed to SCOD during instantiation.
 
-#### Dataset pre-processing
-The `process_dataset()` expects a PyTorch `Dataset` or `IterableDataset` that returns `(input, target)` pairs. 
-However, if your dataset returns dictionaries of the form `{"k1": torch.Tensor_k1, "k2": torch.Tensor_k2, ...}`, you may set the `input_keys` and `target_key` argument to appropriately extract the input and target tensors for your task.
+#### Dataset Pre-processing
+The `process_dataset()` expects a PyTorch `Dataset` or `IterableDataset` that returns input-target tuples. 
+However, if the dataset instead returns dictionaries, the `input_keys` and `target_key` arguments can be set to extract the input and target tensors for a given task.
 
-Importantly, targets are optional, only used when SCOD is configured with `"use_empirical_fischer": True`, and is not necessary to obtain high-quality uncertainty metrics.
+**Important note:** targets are optional, only used when SCOD is configured with `"use_empirical_fischer": True`, and is not necessary to obtain high-quality uncertainty metrics.
 
 #### Uncertainty Quantification
 SCOD subclassses nn.Module and implements a `forward()` function. 
-By default, calling it on a batch of test samples computes (in paralell) the model's outputs (B x d), the posterior predictive variances (B x d), and the local KL-divergences (B x 1).
+By default, calling it on a batch of test samples computes (in parallel) the model's outputs (B x d), the posterior predictive variances (B x d), and the local KL-divergences (B x 1). For increased efficiency, the `mode` argument can be set to the sole desired uncertainty quantity: `mode=1` for variance and `mode=2` for KL-divergence.
 
-For increased efficiency, the `mode` argument can be set to the sole desired uncertainty quantity: `mode=1` for variance and `mode=2` for KL-divergence.
+
 The metrics' connection to the computation graph can be maintained by specifying `detach=False`, supporting differentiability of  downstream, uncertainty-informed objectives through SCOD.
 
 #### Example: Offline Reinforcement Learning
