@@ -131,7 +131,7 @@ class SCOD(nn.Module):
                 sample,
                 input_keys: List[str]=None,
                 detach: bool=True,
-                quantity: str="all",
+                mode: int=0,
                 ) -> Tuple[torch.Tensor]:
         """Computes the desired uncertainty quantity of samples, e.g., the posterior predictive 
         variance or the local KL-divergence of the model on the test input.
@@ -140,7 +140,7 @@ class SCOD(nn.Module):
             sample: batch of tuple or dictionary samples
             input_keys: List[str] of keys to extract inputs if dataset returns a dictionary (default: None)
             detach: remove jacobians and model outputs from the computation graph
-            quantity: the desired output quantities from SCOD (default: "all")
+            mode: int defining the return uncertainty metrics from SCOD (default: 0)
 
         returns:
             outputs: predicted model outputs
@@ -152,14 +152,14 @@ class SCOD(nn.Module):
         inputs, _, batch_size = self._format_sample(sample, input_keys=input_keys)
         L_w, outputs = self._compute_jacobians_outputs(inputs, None, batch_size, detach=detach)
         
-        if quantity == "all":
+        if mode == 0:
             variance, uncertainty = self._predictive_variance_and_kl_divergence(L_w)
-        elif quantity == "variance":
+        elif mode == 1:
             variance, uncertainty = self._posterior_predictive_variance(L_w), None
-        elif quantity == "local_kl":
+        elif mode == 2:
             variance, uncertainty = None, self._local_kl_divergence(L_w)
         else:
-            raise NotImplementedError(f'Requested quantity not in ["all", "variance", "local_kl"]')
+            raise NotImplementedError(f"Specified mode {mode} not in [0, 1, 2]")
 
         return outputs, variance, uncertainty
 
