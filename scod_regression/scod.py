@@ -143,7 +143,7 @@ class SCOD(nn.Module):
             mode: int defining the return uncertainty metrics from SCOD (default: 0)
 
         returns:
-            outputs: predicted model outputs
+            outputs: predicted model outputs (B x d)
             variance: posterior predictive variance of shape (B x d)
             uncertainty: local KL-divergence scalar of size (B x 1)
         """
@@ -182,7 +182,7 @@ class SCOD(nn.Module):
         D = (self._gauss_newton_eigs / (1 + self._gauss_newton_eigs))[:, None]
         S = L.transpose(2, 1) @ L - UT_L.transpose(2, 1) @ (D * UT_L)
         E = torch.sum(L**2, dim=(1, 2)) - torch.sum((torch.sqrt(D) * UT_L)**2, dim=(1, 2))
-        return torch.diagonal(S, dim1=1, dim2=2), E
+        return torch.diagonal(S, dim1=1, dim2=2), E.unsqueeze(-1)
 
     def _posterior_predictive_variance(self, JT: torch.Tensor) -> torch.Tensor:
         """Computes the variance of the posterior predictive distribution.
@@ -211,7 +211,7 @@ class SCOD(nn.Module):
         UT_L = self._gauss_newton_basis.t() @ L
         D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[:, None]
         E = torch.sum(L**2, dim=(1, 2)) - torch.sum((D * UT_L)**2, dim=(1, 2))
-        return E
+        return E.unsqueeze(-1)
 
     def _compute_jacobians_outputs(self,
                                    inputs: List[torch.Tensor],
