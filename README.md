@@ -37,6 +37,43 @@ The predictive variance quantifies the model's epistemic uncertainty.
 Under these guiding assumptions, we compute the expectation of the local KL-divergence in the output distribution over delta weight perturbations by integrating over the posterior distribution. 
 This offers an uncertainty metric akin to the curvature of output distribution manifold under small weight perturbations - the curvature is proportional to the Fischer Information Matrix (FIM). 
 
+### Example: Offline Reinforcement Learning
+We provide an example of quantifying Q-network epistemic uncertainty in offline reinforcement learning, where the dataset returns off-policy transitions `(s, a, r, s')` as dictionaries. 
+
+```python 
+import torch
+from scod_regression import SCOD
+
+# Instantiate model, dataset, test-sample, etc.
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+q_network = ContinuousMLPCritic().to(device)
+
+dataset = DatasetClass()
+input_keys = ["states", "actions"]
+dataloader_kwargs = {"batch_size": 128, "shuffle": True}
+
+test_sample = dataset.__getitem__()
+for k, v in test_sample.items():
+    if torch.is_tensor(v):
+        test_sample[k] = v.unsqueeze(0).to(device)
+
+# SCOD config
+config = {
+  "output_dist": "NormalMeanParamLayer",
+  "sketch": "SRFTSinglePassPCA",
+  "num_eigs": 50,
+}
+
+# (1) Wrap Q-Network with SCOD
+scod = SCOD(q_network, config=config, device=device)
+
+# (2) Pre-compute posterior quantities over in-distribution samples
+scod.process_dataset(dataset, input_keys, dataloader_kwargs=dataloader_kwargs)
+
+# (3) Compute out-of-distribution metrics on a test sample
+q_values, post_pred_var, local_kl = scod(test_sample, input_keys, detach=False)
+```
+
 ### Instructions
 The SCOD class is made accessible by scod-regression and can be used in three simple steps: (1) wrap the PyTorch model (nn.Module) with SCOD; (2) pre-compute the posterior quantities over a dataset of *in-distribution* samples; (3) compute *out-of-distribution* metrics (and model outputs) over test samples.
 
@@ -54,45 +91,7 @@ However, if the dataset instead returns dictionaries, the `input_keys` and `targ
 SCOD subclassses nn.Module and implements a `forward()` function. 
 By default, calling it on a batch of test samples computes (in parallel) the model's outputs (B x d), the posterior predictive variances (B x d), and the local KL-divergences (B x 1). For increased efficiency, the `mode` argument can be set to the sole desired uncertainty quantity: `mode=1` for variance and `mode=2` for KL-divergence.
 
-
-The uncertainty metrics' connection to the computation graph can be maintained by specifying `detach=False`, supporting differentiability of downstream, uncertainty-informed objectives through SCOD.
-
-#### Example: Offline Reinforcement Learning
-```python 
-import torch
-from torch import nn
-from scod_regression import SCOD
-
-# Instantiate model, dataset, test-sample, etc.
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-q_network = ContinuousMLPCritic().to(device)
-
-dataset = DatasetClass()
-input_keys = ["states", "actions"]
-dataloader_kwargs = {"batch_size": 128, "shuffle": True}
-
-sample = dataset.__getitem__()
-for k, v in sample.items():
-    if torch.is_tensor(v):
-        # Add batch dimension to test sample
-        sample[k] = v.unsqueeze(0)
-
-# SCOD config
-config = {
-  "output_dist": "NormalMeanParamLayer",
-  "sketch": "SRFTSinglePassPCA",
-  "num_eigs": 50,
-}
-
-# (1) Wrap Q-Network with SCOD
-scod = SCOD(q_network, config=config, device=device)
-
-# (2) Pre-compute posterior quantities over in-distribution samples
-scod.process_dataset(dataset, input_keys, dataloader_kwargs=dataloader_kwargs)
-
-# (3) Compute out-of-distribution metrics on a test sample
-q_values, post_pred_var, local_kl = scod(sample, input_keys, detach=False)
-``` 
+The uncertainty metrics' connection to the computation graph can be maintained by specifying `detach=False`, supporting differentiability of downstream, uncertainty-informed objectives through SCOD. 
 
 
 ## Citation
