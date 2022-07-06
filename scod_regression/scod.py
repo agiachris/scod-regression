@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 
 import torch
 from torch import nn
@@ -75,8 +75,8 @@ class SCOD(nn.Module):
 
     def process_dataset(self, 
                         dataset: Dataset,
-                        input_keys: List[str]=None,
-                        target_key: str=None,
+                        input_keys: Optional[List[str]]=None,
+                        target_key: Optional[str]=None,
                         dataloader_kwargs: Dict={}
                         ) -> None:
         """Summarizes information about training data by logging gradient directions
@@ -129,7 +129,7 @@ class SCOD(nn.Module):
 
     def forward(self, 
                 sample,
-                input_keys: List[str]=None,
+                input_keys: Optional[List[str]]=None,
                 detach: bool=True,
                 mode: int=0,
                 ) -> Tuple[torch.Tensor]:
@@ -269,8 +269,8 @@ class SCOD(nn.Module):
 
     def _format_sample(self, 
                        x: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor]], 
-                       input_keys: List[str]=None, 
-                       target_key: str=None
+                       input_keys: Optional[List[str]]=None, 
+                       target_key: Optional[str]=None
                        ) -> Tuple[List[torch.Tensor], torch.Tensor, int]:
         """Format dataset sample to be used by model and loss functions.
 
