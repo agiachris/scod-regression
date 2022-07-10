@@ -10,21 +10,26 @@ class CategoricalLogitLayer(DistributionLayer):
     """
     Implements Categorical distribution parameterized by logits
     """
-    def forward(self, z: torch.Tensor) -> distributions.Distribution:
-        return distributions.Categorical(logits = z)
-    
-    def marginalize_gaussian(self, z_mean: torch.Tensor, z_var: torch.Tensor) -> distributions.Distribution:
-        kappa = 1.0 / torch.sqrt(1. + np.pi / 8 * z_var)
-        return distributions.Categorical(logits=kappa*z_mean)
 
-    def marginalize_samples(self, z_samples: torch.Tensor, batch_idx : int = 0) -> distributions.Distribution:
+    def forward(self, z: torch.Tensor) -> distributions.Distribution:
+        return distributions.Categorical(logits=z)
+
+    def marginalize_gaussian(
+        self, z_mean: torch.Tensor, z_var: torch.Tensor
+    ) -> distributions.Distribution:
+        kappa = 1.0 / torch.sqrt(1.0 + np.pi / 8 * z_var)
+        return distributions.Categorical(logits=kappa * z_mean)
+
+    def marginalize_samples(
+        self, z_samples: torch.Tensor, batch_idx: int = 0
+    ) -> distributions.Distribution:
         probs = torch.softmax(z_samples, -1).mean(dim=batch_idx)
         return distributions.Categorical(probs=probs)
 
     def apply_sqrt_F(self, z: torch.Tensor) -> torch.Tensor:
         p = torch.softmax(z, -1).detach()
         z_bar = (p * z).sum(-1, keepdim=True)
-        return torch.sqrt(p) * ( z - z_bar )
+        return torch.sqrt(p) * (z - z_bar)
 
     def metric(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """

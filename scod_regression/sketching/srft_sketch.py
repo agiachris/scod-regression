@@ -10,11 +10,12 @@ class SRFTSinglePassPCA(SinglePassPCA):
     sketch to compute rank r range basis
     """
 
-    def __init__(self,
-                 *args,
-                 sketch_op_cls: SketchOperator=SRFTSketchOp,
-                 device: torch.DeviceObjType=torch.device("cpu")
-                 ) -> None:
+    def __init__(
+        self,
+        *args,
+        sketch_op_cls: SketchOperator = SRFTSketchOp,
+        device: torch.DeviceObjType = torch.device("cpu")
+    ) -> None:
         """Computes a sketch of AA^T when presented columns of A sequentially.
         Then uses eigenvalue decomp of sketch to compute rank num_eigs range basis.
 

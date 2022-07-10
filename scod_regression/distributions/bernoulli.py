@@ -10,27 +10,32 @@ class BernoulliLogitsLayer(DistributionLayer):
     """
     Implements Bernoulli RV parameterized by logits.
     """
-    def forward(self, z: torch.Tensor) -> distributions.Distribution:
-        return distributions.Bernoulli(logits = z)
-    
-    def marginalize_gaussian(self, z_mean: torch.Tensor, z_var: torch.Tensor) -> distributions.Distribution:
-        kappa = 1.0 / torch.sqrt(1. + np.pi / 8 * z_var)
-        return distributions.Bernoulli(logits=kappa*z_mean)
 
-    def marginalize_samples(self, z_samples: torch.Tensor, batch_idx : int = 0) -> distributions.Distribution:
+    def forward(self, z: torch.Tensor) -> distributions.Distribution:
+        return distributions.Bernoulli(logits=z)
+
+    def marginalize_gaussian(
+        self, z_mean: torch.Tensor, z_var: torch.Tensor
+    ) -> distributions.Distribution:
+        kappa = 1.0 / torch.sqrt(1.0 + np.pi / 8 * z_var)
+        return distributions.Bernoulli(logits=kappa * z_mean)
+
+    def marginalize_samples(
+        self, z_samples: torch.Tensor, batch_idx: int = 0
+    ) -> distributions.Distribution:
         probs = torch.sigmoid(z_samples).mean(dim=batch_idx)
         return distributions.Bernoulli(probs=probs)
 
     def apply_sqrt_F(self, z: torch.Tensor) -> torch.Tensor:
         p = torch.sigmoid(z)
-        L = torch.sqrt(p * (1 - p)) + 1e-8 # for stability
+        L = torch.sqrt(p * (1 - p)) + 1e-8  # for stability
         return L * z
 
     def metric(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         Computes 0-1 classification error
         """
-        return ( (self.z >= 0) != y ).float()
+        return ((self.z >= 0) != y).float()
 
 
 class Bernoulli(distributions.Bernoulli, ExtendedDistribution):

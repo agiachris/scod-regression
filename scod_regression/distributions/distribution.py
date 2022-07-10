@@ -7,8 +7,9 @@ class DistributionLayer(nn.Module):
     """
     A layer mapping network output to a distribution object.
     """
+
     @abstractmethod
-    def forward(self, z : torch.Tensor) -> distributions.Distribution:
+    def forward(self, z: torch.Tensor) -> distributions.Distribution:
         """
         Returns torch.Distribution object specified by z
 
@@ -18,7 +19,9 @@ class DistributionLayer(nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def marginalize_gaussian(self, z_mean : torch.Tensor, z_var : torch.Tensor) -> distributions.Distribution:
+    def marginalize_gaussian(
+        self, z_mean: torch.Tensor, z_var: torch.Tensor
+    ) -> distributions.Distribution:
         """
         If z \sim N(z_mean, z_var), estimates p(y) = E_z [ p(y \mid z) ]
 
@@ -32,7 +35,9 @@ class DistributionLayer(nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def marginalize_samples(self, z_samples : torch.Tensor, batch_idx : int = 0) -> distributions.Distribution:
+    def marginalize_samples(
+        self, z_samples: torch.Tensor, batch_idx: int = 0
+    ) -> distributions.Distribution:
         """
         Given samples of z, estimates p(y) = E_z [ p(y \mid z) ] over empirical distribution
 
@@ -46,7 +51,7 @@ class DistributionLayer(nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def apply_sqrt_F(self, z : torch.Tensor) -> torch.Tensor:
+    def apply_sqrt_F(self, z: torch.Tensor) -> torch.Tensor:
         """
         The Fisher Information Matrix of the output distribution is given by
             $$ F = E_{y \sim p(y | z)}[ d^2/dz^2 \log p (y \mid z)] $$
@@ -62,7 +67,7 @@ class DistributionLayer(nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def metric(self, z : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+    def metric(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         Returns a metric of Error(y,z), e.g. MSE for regression, 0-1 error for classification
 
@@ -75,7 +80,7 @@ class DistributionLayer(nn.Module):
         """
         raise NotImplementedError
 
-    def log_prob(self, z : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+    def log_prob(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         Returns log p( y | z)
 
@@ -88,7 +93,7 @@ class DistributionLayer(nn.Module):
         """
         return self.forward(z).log_prob(y)
 
-    def validated_log_prob(self, z : torch.Tensor, y : torch.Tensor) -> torch.Tensor:
+    def validated_log_prob(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         Checks if each element of y is in the support of the distribution specified by z
         Computes mean log_prob only on the elements 

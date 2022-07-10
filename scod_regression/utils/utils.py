@@ -14,7 +14,7 @@ def idct(X, norm=None):
 
     X_v = X.contiguous().view(x_shape) / 2
 
-    if norm == 'ortho':
+    if norm == "ortho":
         X_v[:, :, 0] *= np.sqrt(N) * 2
         X_v[:, :, 1:] *= np.sqrt(N / 2) * 2
 
@@ -33,10 +33,10 @@ def idct(X, norm=None):
     v = torch.fft.irfft(torch.view_as_complex(V), n=N, dim=2)
 
     x = v.new_zeros(v.shape)
-    x[:, :, ::2] += v[:, :, :N - (N // 2)]
-    x[:, :, 1::2] += v.flip([2])[:, :, :N // 2]
-    
-    return x.view(*x_shape) 
+    x[:, :, ::2] += v[:, :, : N - (N // 2)]
+    x[:, :, 1::2] += v.flip([2])[:, :, : N // 2]
+
+    return x.view(*x_shape)
 
 
 @torch.no_grad()
@@ -51,7 +51,7 @@ def low_rank_approx(Y, W, Psi_fn):
     """
     Q, _ = torch.linalg.qr(Y, "reduced")  # (N, k)
     U, T = torch.linalg.qr(Psi_fn(Q), "reduced")  # (l, k), (k, k)
-    X = torch.linalg.solve_triangular(T, U.t() @ W, upper=True) # (k, N)
+    X = torch.linalg.solve_triangular(T, U.t() @ W, upper=True)  # (k, N)
 
     return Q, X
 

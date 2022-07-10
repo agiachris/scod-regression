@@ -7,14 +7,14 @@ from ..utils.utils import fixed_rank_eig_approx
 
 
 class SinglePassPCA:
-
-    def __init__(self,
-                 num_params: int,
-                 num_eigs: int,
-                 num_samples: int,
-                 sketch_op_cls: SketchOperator=GaussianSketchOp,
-                 device: torch.DeviceObjType=torch.device("cpu")
-                 ) -> None:
+    def __init__(
+        self,
+        num_params: int,
+        num_eigs: int,
+        num_samples: int,
+        sketch_op_cls: SketchOperator = GaussianSketchOp,
+        device: torch.DeviceObjType = torch.device("cpu"),
+    ) -> None:
         """Computes a sketch of AA^T when presented columns of A sequentially.
         Then uses eigenvalue decomp of sketch to compute rank num_eigs range basis.
 
@@ -31,7 +31,7 @@ class SinglePassPCA:
         self._device = device
 
         # Construct sketching operators
-        self._r = max(self._k + 2, (self._T - 1) // 3) 
+        self._r = max(self._k + 2, (self._T - 1) // 3)
         self._s = self._T - self._r
         self._Om = sketch_op_cls(self._r, self._N, device=self._device)
         self._Psi = sketch_op_cls(self._s, self._N, device=self._device)
@@ -51,7 +51,7 @@ class SinglePassPCA:
         v = v.to(self._device)
         self._Y += torch.sum(v @ self._Om(v.transpose(2, 1), transpose=True), dim=0)
         self._W += torch.sum(self._Psi(v) @ v.transpose(2, 1), dim=0)
-        
+
     @torch.no_grad()
     def eigs(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Returns a basis for the range of the top-2k left singular vectors.
