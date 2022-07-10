@@ -56,13 +56,13 @@ class DistributionLayer(nn.Module):
         The Fisher Information Matrix of the output distribution is given by
             $$ F = E_{y \sim p(y | z)}[ d^2/dz^2 \log p (y \mid z)] $$
         If we factor F(z) = L(z) L(z)^T
-        This function returns [ L(z)^T ].detach() @ z 
+        This function returns [ L(z)^T ].detach() @ z
 
         Args:
             z (torch.Tensor): parameter of p(y | z)
 
         Returns:
-            torch.Tensor: parameter scaled by the square root of the fisher matrix, [ L(z)^T ].detach() z 
+            torch.Tensor: parameter scaled by the square root of the fisher matrix, [ L(z)^T ].detach() z
         """
         raise NotImplementedError
 
@@ -96,7 +96,7 @@ class DistributionLayer(nn.Module):
     def validated_log_prob(self, z: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         Checks if each element of y is in the support of the distribution specified by z
-        Computes mean log_prob only on the elements 
+        Computes mean log_prob only on the elements
 
         Args:
             z (torch.Tensor): parameter of distribution

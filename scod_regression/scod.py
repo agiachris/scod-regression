@@ -40,7 +40,9 @@ class SCOD(nn.Module):
         self._num_params = int(sum(p.numel() for p in trainable_params))
 
         # Output distribution
-        self._output_dist: Type[distributions.DistributionLayer] = vars(distributions)[self._config["output_dist"]]
+        self._output_dist: Type[distributions.DistributionLayer] = vars(distributions)[
+            self._config["output_dist"]
+        ]
         self._use_empirical_fischer = self._config["use_empirical_fischer"]
 
         # Matrix sketching
@@ -70,8 +72,7 @@ class SCOD(nn.Module):
 
     @property
     def functional_model(self):
-        """Get functorch functional model. Set parameter gradients to None.
-        """
+        """Get functorch functional model. Set parameter gradients to None."""
         for p in self._params:
             if p.grad is not None:
                 p.grad = None
@@ -86,7 +87,7 @@ class SCOD(nn.Module):
     ) -> None:
         """Summarizes information about training data by logging gradient directions
         seen during training and forming an orthonormal basis with Gram-Schmidt.
-        Directions not seen during training are taken to be irrelevant to data, 
+        Directions not seen during training are taken to be irrelevant to data,
         and used for detecting generalization.
 
         args:
@@ -150,7 +151,7 @@ class SCOD(nn.Module):
         detach: bool = True,
         mode: int = 0,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Computes the desired uncertainty quantity of samples, e.g., the posterior predictive 
+        """Computes the desired uncertainty quantity of samples, e.g., the posterior predictive
         variance or the local KL-divergence of the model on the test input.
 
         args:
@@ -184,25 +185,27 @@ class SCOD(nn.Module):
 
         return outputs, variance, uncertainty
 
-    def _predictive_variance_and_kl_divergence(self, L: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Computes the variance of the posterior predictive distribution and the local 
+    def _predictive_variance_and_kl_divergence(
+        self, L: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Computes the variance of the posterior predictive distribution and the local
         KL-divergence of the output distribution against the posterior weight distribution.
 
-        Note: While JT and L are both of shape (B x N x d), they are only identical 
+        Note: While JT and L are both of shape (B x N x d), they are only identical
         if the output distribution has unit variance, rendering self._output_dist.apply_sqrt_F()
         negligible. The code-base assumes this case, and hence uses JT and L interchangeably.
 
         args:
             L: test weight Fischer with shape (B x N x d)
-        
-        returns: 
+
+        returns:
             S: posterior predictive variance of shape (B x d)
             E: local KL-divergence scalar of size (B x 1)
         """
         UT_L = self._gauss_newton_basis.t() @ L
         D = (self._gauss_newton_eigs / (1 + self._gauss_newton_eigs))[:, None]
         S = L.transpose(2, 1) @ L - UT_L.transpose(2, 1) @ (D * UT_L)
-        E = torch.sum(L ** 2, dim=(1, 2)) - torch.sum(
+        E = torch.sum(L**2, dim=(1, 2)) - torch.sum(
             (torch.sqrt(D) * UT_L) ** 2, dim=(1, 2)
         )
         return torch.diagonal(S, dim1=1, dim2=2), E.unsqueeze(-1)
@@ -222,12 +225,12 @@ class SCOD(nn.Module):
         return torch.diagonal(S, dim1=1, dim2=2)
 
     def _local_kl_divergence(self, L: torch.Tensor) -> torch.Tensor:
-        """Computes the local KL-divergence of the output distribution against the 
+        """Computes the local KL-divergence of the output distribution against the
         posterior weight distribution.
 
         args:
             L: test weight Fischer with shape (B x N x d)
-        
+
         returns:
             E: local KL-divergence scalar of size (B x 1)
         """
@@ -235,7 +238,7 @@ class SCOD(nn.Module):
         D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[
             :, None
         ]
-        E = torch.sum(L ** 2, dim=(1, 2)) - torch.sum((D * UT_L) ** 2, dim=(1, 2))
+        E = torch.sum(L**2, dim=(1, 2)) - torch.sum((D * UT_L) ** 2, dim=(1, 2))
         return E.unsqueeze(-1)
 
     def _compute_jacobians_outputs(
@@ -245,8 +248,8 @@ class SCOD(nn.Module):
         batch_size: int,
         detach: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Computes the test or empirical weight Fischer of a batch of samples 
-        and the model outputs. 
+        """Computes the test or empirical weight Fischer of a batch of samples
+        and the model outputs.
 
         args:
             inputs: model input tensors
@@ -288,7 +291,7 @@ class SCOD(nn.Module):
             buffers: buffers of the functional model
             target: grouth truth target tensor
             *input: model input tensors
-        
+
         returns:
             pre_jacobian: factor by which to compute the weight Jacobian of size (d)
             output: model predictions parameterizing the output distribution of size (d)
@@ -342,8 +345,8 @@ class SCOD(nn.Module):
         x: Iterable[torch.Tensor], batch_size: int, output_dim: int
     ) -> torch.Tensor:
         """Returns flattenned, contiguous Jacobian.
-        
-        args: 
+
+        args:
             x: List of parameter Jacobians of size (B x d x n1 x n2 x ...)
             batch_size: number of samples
             output_dim: dimension of the output

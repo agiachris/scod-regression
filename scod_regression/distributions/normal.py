@@ -33,7 +33,7 @@ class NormalMeanParamLayer(DistributionLayer):
     def marginalize_gaussian(
         self, z_mean: torch.Tensor, z_var: torch.Tensor
     ) -> distributions.Distribution:
-        combined_std_dev = torch.sqrt(self.std_dev ** 2 + z_var)
+        combined_std_dev = torch.sqrt(self.std_dev**2 + z_var)
         return distributions.Independent(
             distributions.Normal(loc=z_mean, scale=combined_std_dev),
             reinterpreted_batch_ndims=1,
@@ -44,7 +44,7 @@ class NormalMeanParamLayer(DistributionLayer):
     ) -> distributions.Distribution:
         combined_mean = z_samples.mean(batch_idx)
         combined_std_dev = torch.sqrt(
-            (z_samples ** 2).mean(batch_idx) - combined_mean ** 2 + self.var
+            (z_samples**2).mean(batch_idx) - combined_mean**2 + self.var
         )
         return distributions.Independent(
             distributions.Normal(loc=combined_mean, scale=combined_std_dev),
@@ -96,7 +96,7 @@ class NormalMeanDiagVarParamLayer(DistributionLayer):
         var_mean = torch.exp(logvar_samples).mean(batch_idx)
         combined_mean = mean_samples.mean(batch_idx)
         combined_std_dev = torch.sqrt(
-            (z_samples ** 2).mean(batch_idx) - combined_mean ** 2 + var_mean
+            (z_samples**2).mean(batch_idx) - combined_mean**2 + var_mean
         )
         return distributions.Independent(
             distributions.Normal(loc=combined_mean, scale=combined_std_dev),
@@ -153,7 +153,7 @@ class Normal(distributions.normal.Normal, ExtendedDistribution):
 
     def merge_batch(self):
         diag_var = (
-            torch.mean(self.mean ** 2, dim=0)
+            torch.mean(self.mean**2, dim=0)
             - self.mean.mean(dim=0) ** 2
             + self.variance.mean(dim=0)
         )

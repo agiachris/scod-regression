@@ -43,7 +43,7 @@ class SinglePassPCA:
     @torch.no_grad()
     def low_rank_update(self, v: torch.Tensor) -> None:
         """Processes a batch of columns of matrix A.
-        
+
         args:
             v: matrix of size (B x N x d)
         """

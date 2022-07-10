@@ -7,8 +7,8 @@ from .gaussian_sketch import SinglePassPCA
 
 
 class SRFTSinglePassPCA(SinglePassPCA):
-    """Computes a subsampled randomized fourier transform sketch of AA^T 
-    when presented columns of A sequentially. Then uses eigen decomp of 
+    """Computes a subsampled randomized fourier transform sketch of AA^T
+    when presented columns of A sequentially. Then uses eigen decomp of
     sketch to compute rank r range basis
     """
 

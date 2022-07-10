@@ -5,7 +5,7 @@ import numpy as np
 def idct(X, norm=None):
     """
     based on https://github.com/zh217/torch-dct/blob/master/torch_dct/_dct.py
-    updated to work with more recent versions of pytorch which moved fft functionality to 
+    updated to work with more recent versions of pytorch which moved fft functionality to
     the torch.fft module
     """
     x_shape = X.shape
