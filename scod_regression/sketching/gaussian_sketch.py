@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Type
 
 import torch
 
@@ -12,8 +12,8 @@ class SinglePassPCA:
         num_params: int,
         num_eigs: int,
         num_samples: int,
-        sketch_op_cls: SketchOperator = GaussianSketchOp,
-        device: torch.DeviceObjType = torch.device("cpu"),
+        sketch_op_cls: Type[SketchOperator] = GaussianSketchOp,
+        device: torch.device = torch.device("cpu"),
     ) -> None:
         """Computes a sketch of AA^T when presented columns of A sequentially.
         Then uses eigenvalue decomp of sketch to compute rank num_eigs range basis.
@@ -23,7 +23,7 @@ class SinglePassPCA:
             num_eigs: desired rank of matrix sketch approximation
             num_samples: sketch size T (default: 6 * num_eigs + 4)
             sketch_op_cls: sketch operator class (default: GaussianSketchOp)
-            device: torch.DeviceObjType to compute low-rank approximation
+            device: torch.device to compute low-rank approximation
         """
         self._N = num_params
         self._k = num_eigs

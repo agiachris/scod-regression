@@ -9,13 +9,14 @@ from ..utils.utils import idct
 class SketchOperator(nn.Module):
     @abstractmethod
     def __init__(
-        self, d: int, N: int, device: torch.DeviceObjType = torch.device("cpu")
+        self, d: int, N: int, device: torch.device = torch.device("cpu")
     ) -> None:
         """Implements d x N linear operator for sketching.
 
         args:
             d: first matrix dimension size
             N: second matrix dimension size
+            device: torch.device to compute sketch
         """
         super().__init__()
         self._d = d
@@ -23,7 +24,7 @@ class SketchOperator(nn.Module):
         self._device = device
 
     @abstractmethod
-    def forward(self, M: torch.TensorType, transpose: bool = False) -> torch.TensorType:
+    def forward(self, M: torch.Tensor, transpose: bool = False) -> torch.Tensor:
         """Computes right multiplication by M (S @ M). If transpose,
         computes transposed left multiplication by M (M @ S.T).
         """

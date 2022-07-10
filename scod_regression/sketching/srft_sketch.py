@@ -1,3 +1,5 @@
+from typing import Type
+
 import torch
 
 from .sketch_ops import SketchOperator, SRFTSketchOp
@@ -13,8 +15,8 @@ class SRFTSinglePassPCA(SinglePassPCA):
     def __init__(
         self,
         *args,
-        sketch_op_cls: SketchOperator = SRFTSketchOp,
-        device: torch.DeviceObjType = torch.device("cpu")
+        sketch_op_cls: Type[SketchOperator] = SRFTSketchOp,
+        device: torch.device = torch.device("cpu")
     ) -> None:
         """Computes a sketch of AA^T when presented columns of A sequentially.
         Then uses eigenvalue decomp of sketch to compute rank num_eigs range basis.
@@ -22,6 +24,6 @@ class SRFTSinglePassPCA(SinglePassPCA):
         args:
             *args: positional arguments of SinglePassPCA
             sketch_op_cls: sketch operator class (default: SRFTSketchOp)
-            device: torch.DeviceObjType to compute low-rank approximation
+            device: torch.device to compute low-rank approximation
         """
         super().__init__(*args, sketch_op_cls=sketch_op_cls, device=device)
