@@ -3,7 +3,7 @@ from torch import nn, Tensor
 import numpy as np
 from abc import abstractmethod
 
-from ..utils.utils import idct
+from ..utils.utils import idct, batch_idct
 
 
 class SketchOperator(nn.Module):
@@ -38,7 +38,6 @@ class GaussianSketchOp(SketchOperator):
 
     @torch.no_grad()
     def forward(self, M, transpose=False):
-        assert M.dim() == 3, "M must be of dimension 3"
         if transpose:
             return M @ self.test_matrix.t()
         return self.test_matrix @ M
@@ -54,11 +53,26 @@ class SRFTSketchOp(SketchOperator):
 
     @torch.no_grad()
     def forward(self, M, transpose=False):
-        assert M.dim() == 3, "M must be of dimension 3"
         if transpose:
-            M = M.transpose(2, 1)
-        result = idct((self.D[:, None] * M).transpose(2, 1))
-        result = result.transpose(2, 1)[:, self.P, :]
+            try:
+                M = M.t()
+            except:
+                M = M.transpose(2, 1)
+
+        if M.dim() == 3:
+            result = batch_idct((self.D[:, None] * M).transpose(2, 1))
+            result = result.transpose(2, 1)[:, self.P, :]
+        elif M.dim() == 2:
+            result = idct((self.D[:, None] * M).t()).t()[self.P, :]
+        elif M.dim() == 1:
+            result = idct(self.D * M)[self.P]
+        else:
+            raise ValueError("Matrix is not of dimension 1, 2, 3")
+
         if transpose:
-            return result.transpose(2, 1)
+            try:
+                result = result.t()
+            except:
+                result = result.transpose(2, 1)
+
         return result

@@ -82,6 +82,7 @@ class SCOD(nn.Module):
 
         # batched Jacobian function transforms are dynamically setup
         self._compute_batched_jacobians: Optional[Callable[..., Tuple[Tensor, Tensor]]] = None
+        self._in_dims: Optional[Tuple[Optional[int], ...]] = None
 
         # SCOD parameters
         self._gauss_newton_eigs = nn.Parameter(
@@ -252,14 +253,14 @@ class SCOD(nn.Module):
             jacobians: Jacobians of size (B x N x d)
             outputs: model predictions parameterizing the output distribution of size (B x d)
         """
-        if self._compute_batched_jacobians is None:
+        in_dims = (None,) * 3 + ((0,) if targets is not None else (None,)) + (0,) * len(inputs)
+        if self._compute_batched_jacobians is None or in_dims != self._in_dims:
             # Setup batched Jacobian function transforms
             self._compute_batched_jacobians = vmap(
-                jacrev(self._compute_fischer_stateless_model, argnums=1, has_aux=True),
-                in_dims=(None,) * 3
-                + ((0,) if targets is not None else (None,))
-                + (0,) * len(inputs),
+                func=jacrev(self._compute_fischer_stateless_model, argnums=1, has_aux=True),
+                in_dims=in_dims,
             )
+            self._in_dims = in_dims
 
         jacobians, outputs = self._compute_batched_jacobians(
             *self.functional_model, targets, *inputs
