@@ -50,9 +50,7 @@ class SCOD(nn.Module):
         self._sketch_cls = sketch_cls
         self._use_empirical_fischer = use_empirical_fischer
         self._num_eigs = num_eigs
-        self._num_samples: int = (
-            num_samples if num_samples is not None else self._num_eigs * 6 + 4
-        )
+        self._num_samples: int = num_samples if num_samples is not None else self._num_eigs * 6 + 4
         self._device = device
 
         # Setup functional model
@@ -72,9 +70,7 @@ class SCOD(nn.Module):
             data=torch.zeros(self._num_params, self._num_eigs, device=self._device),
             requires_grad=False,
         )
-        self.configured = nn.Parameter(
-            torch.zeros(1, dtype=torch.bool), requires_grad=False
-        )
+        self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
 
     @property
     def functional_model(
@@ -129,17 +125,13 @@ class SCOD(nn.Module):
                 del dataloader_kwargs["shuffle"]
         dataloader = DataLoader(dataset, **dataloader_kwargs)
 
-        # Instantiate sketch and functional model
+        # Incrementally build new sketch from samples
+        self._functional_model = make_functional_with_buffers(self._model)
         sketch = self._sketch_cls(
             self._num_params, self._num_eigs, self._num_samples, device=self._device
         )
-
-        # Incrementally build sketch from samples
         for _, sample in enumerate(dataloader):
-            inputs, targets, batch_size = self._format_sample(
-                sample, input_keys, target_key
-            )
-
+            inputs, targets, batch_size = self._format_sample(sample, input_keys, target_key)
             # Compute test weight Fischer: L_w = J_f.T @ L_theta
             L_w, _ = self._compute_jacobians_outputs(inputs, targets, batch_size)
             sketch.low_rank_update(L_w)
@@ -148,11 +140,11 @@ class SCOD(nn.Module):
         del L_w
         eigs, basis = sketch.eigs()
         del sketch
-        self._gauss_newton_eigs.data = torch.clamp_min(
-            eigs[-self._num_eigs :], min=0
-        ).to(self._device)
+        self._gauss_newton_eigs.data = torch.clamp_min(eigs[-self._num_eigs :], min=0).to(
+            self._device
+        )
         self._gauss_newton_basis.data = basis[:, -self._num_eigs :].to(self._device)
-        self.configured.data = torch.ones(1, dtype=torch.bool).to(self._device)
+        self._configured.data = torch.ones(1, dtype=torch.bool).to(self._device)
 
     def forward(
         self,
@@ -175,14 +167,10 @@ class SCOD(nn.Module):
             variance: posterior predictive variance of shape (B x d)
             uncertainty: local KL-divergence scalar of size (B x 1)
         """
-        assert (
-            self._configured
-        ), "Must call self.process_dataset() before self.forward()"
+        assert self._configured, "Must call self.process_dataset() before self.forward()"
 
         inputs, _, batch_size = self._format_sample(sample, input_keys=input_keys)
-        L_w, outputs = self._compute_jacobians_outputs(
-            inputs, None, batch_size, detach=detach
-        )
+        L_w, outputs = self._compute_jacobians_outputs(inputs, None, batch_size, detach=detach)
 
         if mode == 0:
             variance, uncertainty = self._predictive_variance_and_kl_divergence(L_w)
@@ -215,9 +203,7 @@ class SCOD(nn.Module):
         UT_L = self._gauss_newton_basis.t() @ L
         D = (self._gauss_newton_eigs / (1 + self._gauss_newton_eigs))[:, None]
         S = L.transpose(2, 1) @ L - UT_L.transpose(2, 1) @ (D * UT_L)
-        E = torch.sum(L**2, dim=(1, 2)) - torch.sum(
-            (torch.sqrt(D) * UT_L) ** 2, dim=(1, 2)
-        )
+        E = torch.sum(L**2, dim=(1, 2)) - torch.sum((torch.sqrt(D) * UT_L) ** 2, dim=(1, 2))
         return torch.diagonal(S, dim1=1, dim2=2), E.unsqueeze(-1)
 
     def _posterior_predictive_variance(self, JT: torch.Tensor) -> torch.Tensor:
@@ -245,9 +231,7 @@ class SCOD(nn.Module):
             E: local KL-divergence scalar of size (B x 1)
         """
         UT_L = self._gauss_newton_basis.t() @ L
-        D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[
-            :, None
-        ]
+        D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[:, None]
         E = torch.sum(L**2, dim=(1, 2)) - torch.sum((D * UT_L) ** 2, dim=(1, 2))
         return E.unsqueeze(-1)
 
@@ -374,7 +358,5 @@ class SCOD(nn.Module):
         returns:
             x: formatted Jacobian of shape (B x N x d)
         """
-        x = torch.cat(
-            [_x.contiguous().view(batch_size, output_dim, -1) for _x in x], dim=-1
-        )
+        x = torch.cat([_x.contiguous().view(batch_size, output_dim, -1) for _x in x], dim=-1)
         return x.transpose(2, 1)
