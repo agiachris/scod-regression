@@ -331,7 +331,7 @@ class SCOD(nn.Module):
         if isinstance(x, dict):
             assert input_keys is not None, "Require keys to extract inputs"
             inputs = [x[k].to(self._device) for k in input_keys]
-            targets = x[target_key] if target_key is not None else None
+            targets = x[target_key].to(self._device) if target_key is not None else None
         elif isinstance(x, tuple):
             inputs = [x[0].to(self._device)]
             targets = x[1].to(self._device)
