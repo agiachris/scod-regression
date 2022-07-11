@@ -35,7 +35,7 @@ class BernoulliLogitsLayer(DistributionLayer):
         """
         Computes 0-1 classification error
         """
-        return ((self.z >= 0) != y).float()
+        return ((z >= 0) != y).float()
 
 
 class Bernoulli(distributions.Bernoulli, ExtendedDistribution):

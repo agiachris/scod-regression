@@ -321,7 +321,7 @@ class SCOD(nn.Module):
         pre_jacobians = (
             self._output_dist.apply_sqrt_F(outputs)
             if not self._use_empirical_fischer
-            else -self._output_dist.validated_log_prob(outputs, target.unsqueeze(0))
+            else -self._output_dist.log_prob(outputs, target.unsqueeze(0))
         )
 
         return pre_jacobians.squeeze(0), outputs.squeeze(0)
