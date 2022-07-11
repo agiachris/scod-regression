@@ -1,4 +1,14 @@
-from typing import Callable, Dict, List, Tuple, Type, Union, Optional, Iterable
+from typing import (
+    Dict,
+    List,
+    Tuple,
+    Type,
+    Union,
+    Optional,
+    Iterable,
+    Iterator,
+    Callable,
+)
 
 import torch
 from torch import nn
@@ -6,16 +16,20 @@ from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
 from functorch._src.make_functional import FunctionalModuleWithBuffers
 
-from .utils.constants import _BASE_SCOD_CONFIG
-from . import distributions
-from . import sketching
+from .distributions.distribution import DistributionLayer
+from .distributions.normal import NormalMeanParamLayer
+from .sketching import SinglePassPCA
 
 
 class SCOD(nn.Module):
     def __init__(
         self,
         model: nn.Module,
-        config: Dict[str, Union[bool, Optional[int], str]] = _BASE_SCOD_CONFIG,
+        output_dist_cls: Type[DistributionLayer] = NormalMeanParamLayer,
+        sketch_cls: Type[SinglePassPCA] = SinglePassPCA,
+        use_empirical_fischer: bool = False,
+        num_eigs: int = 10,
+        num_samples: Optional[int] = None,
         device: torch.device = torch.device("cpu"),
     ) -> None:
         """Wraps a trained model with functionality for adding epistemic uncertainty estimation.
@@ -23,36 +37,27 @@ class SCOD(nn.Module):
 
         args:
             model: base PyTorch model to equip with uncertainty metric
-            output_dist: distributions.DistributionLayer output probability distribution
-            config: SCOD hyperparamters / configuration
+            output_dist_cls: distributions.DistributionLayer subclass output probability distribution
+            sketch_cls: matrix sketching algorithm class (Gaussian or SRFT)
+            use_empirical_fischer: weight sketch samples by loss
+            num_eigs: low-rank estimate of the dataset Fischer (K)
+            num_samples: sketch size (T)
             device: torch.device to store matrix sketch parameters
         """
         super().__init__()
         self._model = model
+        self._output_dist = output_dist_cls()
+        self._sketch_cls = sketch_cls
+        self._use_empirical_fischer = use_empirical_fischer
+        self._num_eigs = num_eigs
+        self._num_samples: int = (
+            num_samples if num_samples is not None else self._num_eigs * 6 + 4
+        )
         self._device = device
-        self._config = _BASE_SCOD_CONFIG.copy()
-        self._config.update(config)
 
-        # Neural network parameters to sketch
-        trainable_params = list(
-            filter(lambda x: x.requires_grad, self._model.parameters())
-        )
-        self._num_params = int(sum(p.numel() for p in trainable_params))
-
-        # Output distribution
-        self._output_dist: Type[distributions.DistributionLayer] = vars(distributions)[
-            self._config["output_dist"]
-        ]
-        self._use_empirical_fischer = self._config["use_empirical_fischer"]
-
-        # Matrix sketching
-        self._sketch_cls = vars(sketching)[self._config["sketch"]]
-        self._num_eigs = self._config["num_eigs"]
-        self._num_samples = (
-            self._config["num_samples"]
-            if self._config["num_samples"] is not None
-            else self._num_eigs * 6 + 4
-        )
+        # Setup functional model
+        self._functional_model = make_functional_with_buffers(self._model)
+        self._num_params = int(sum(p.numel() for p in self._params if p.requires_grad))
 
         # SCOD parameters
         self._gauss_newton_eigs = nn.Parameter(
@@ -62,25 +67,43 @@ class SCOD(nn.Module):
             data=torch.zeros(self._num_params, self._num_eigs, device=self._device),
             requires_grad=False,
         )
+        self.configured = nn.Parameter(
+            torch.zeros(1, dtype=torch.bool), requires_grad=False
+        )
 
-        # Attributes assigned upon self.process_dataset call
-        self._fmodel = None
-        self._params = None
-        self._buffers = None
-        self._compute_batched_jacobians = None
-        self._configured = False
+        self._compute_batched_jacobians: Optional[
+            Callable[..., Tuple[torch.Tensor, torch.Tensor]]
+        ] = None
 
     @property
-    def functional_model(self):
+    def functional_model(
+        self,
+    ) -> Tuple[
+        FunctionalModuleWithBuffers,
+        Iterator[nn.Parameter],
+        Dict[str, Optional[torch.Tensor]],
+    ]:
         """Get functorch functional model. Set parameter gradients to None."""
         for p in self._params:
             if p.grad is not None:
                 p.grad = None
         return self._fmodel, self._params, self._buffers
 
+    @property.setter
+    def functional_model(
+        self,
+        x: Tuple[
+            FunctionalModuleWithBuffers,
+            Iterator[nn.Parameter],
+            Dict[str, Optional[torch.Tensor]],
+        ],
+    ):
+        """Set functorch functional model."""
+        self._fmodel, self._params, self._buffers = x
+
     def process_dataset(
         self,
-        dataset: Dataset,
+        dataset: Union[Dataset, IterableDataset],
         input_keys: Optional[List[str]] = None,
         target_key: Optional[str] = None,
         dataloader_kwargs: Dict = {},
@@ -109,26 +132,12 @@ class SCOD(nn.Module):
         sketch = self._sketch_cls(
             self._num_params, self._num_eigs, self._num_samples, device=self._device
         )
-        self._fmodel, self._params, self._buffers = make_functional_with_buffers(
-            self._model
-        )
 
         # Incrementally build sketch from samples
         for _, sample in enumerate(dataloader):
             inputs, targets, batch_size = self._format_sample(
                 sample, input_keys, target_key
             )
-
-            # Create batched Jacobian function transforms
-            if not self._configured:
-                self._compute_batched_jacobians = vmap(
-                    func=jacrev(
-                        self._compute_fischer_stateless_model, argnums=1, has_aux=True
-                    ),
-                    in_dims=(None,) * 3
-                    + ((0,) if targets is not None else (None,))
-                    + (0,) * len(inputs),
-                )
 
             # Compute test weight Fischer: L_w = J_f.T @ L_theta
             L_w, _ = self._compute_jacobians_outputs(inputs, targets, batch_size)
@@ -139,10 +148,10 @@ class SCOD(nn.Module):
         eigs, basis = sketch.eigs()
         del sketch
         self._gauss_newton_eigs.data = torch.clamp_min(
-            eigs[-self._num_eigs :], min=torch.zeros(1)
+            eigs[-self._num_eigs :], min=0
         ).to(self._device)
         self._gauss_newton_basis.data = basis[:, -self._num_eigs :].to(self._device)
-        self._configured = True
+        self.configured.data = torch.ones(1, dtype=torch.bool).to(self._device)
 
     def forward(
         self,
@@ -261,6 +270,14 @@ class SCOD(nn.Module):
             jacobians: Jacobians of size (B x N x d)
             outputs: model predictions parameterizing the output distribution of size (B x d)
         """
+        if self._compute_batched_jacobians is None:
+            # Setup batched Jacobian function transforms
+            self._compute_batched_jacobians = vmap(
+                jacrev(self._compute_fischer_stateless_model, argnums=1, has_aux=True),
+                in_dims=(None,) * 3
+                + ((0,) if targets is not None else (None,))
+                + (0,) * len(inputs),
+            )
 
         jacobians, outputs = self._compute_batched_jacobians(
             *self.functional_model, targets, *inputs
@@ -271,14 +288,16 @@ class SCOD(nn.Module):
             self._num_params,
             outputs.size(-1),
         )
-        return jacobians.detach(), outputs.detach() if detach else jacobians, outputs
+        if detach:
+            return jacobians.detach(), outputs.detach()
+        return jacobians, outputs
 
     def _compute_fischer_stateless_model(
         self,
         fmodel: FunctionalModuleWithBuffers,
         params: Tuple[nn.Parameter],
-        buffers: Tuple[torch.Tensor],
-        target=torch.Tensor,
+        buffers: Dict[str, Optional[torch.Tensor]],
+        target: torch.Tensor,
         *input: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute the models weight Fischer for a single sample. There are two cases, below:
@@ -296,7 +315,7 @@ class SCOD(nn.Module):
             pre_jacobian: factor by which to compute the weight Jacobian of size (d)
             output: model predictions parameterizing the output distribution of size (d)
         """
-        input = [x.unsqueeze(0) for x in input]
+        input = tuple(x.unsqueeze(0) for x in input)
         outputs = fmodel(params, buffers, *input)
         pre_jacobians = (
             self._output_dist.apply_sqrt_F(outputs)
