@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+from torch import nn, Tensor
 import numpy as np
 from abc import abstractmethod
 
@@ -22,7 +22,7 @@ class SketchOperator(nn.Module):
         self._device = device
 
     @abstractmethod
-    def forward(self, M: torch.Tensor, transpose: bool = False) -> torch.Tensor:
+    def forward(self, M: Tensor, transpose: bool = False) -> Tensor:
         """Computes right multiplication by M (S @ M). If transpose,
         computes transposed left multiplication by M (M @ S.T).
         """

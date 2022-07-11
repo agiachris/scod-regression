@@ -1,8 +1,20 @@
+from typing import Optional, Union, Callable, Tuple, List
+
 import torch
+from torch import Tensor
 import numpy as np
 
 
-def idct(X, norm=None):
+def flatten(x: Union[Tuple[Tensor, ...], List[Tensor]]) -> List[Tensor]:
+    """Flatten Iterable of Iterables recursively."""
+    if not x:
+        return list(x)
+    if isinstance(x[0], (tuple, list)):
+        return flatten(x[0]) + flatten(x[1:])
+    return list(x[:1]) + flatten(x[1:])
+
+
+def idct(X: Tensor, norm: Optional[str] = None) -> Tensor:
     """
     based on https://github.com/zh217/torch-dct/blob/master/torch_dct/_dct.py
     updated to work with more recent versions of pytorch which moved fft functionality to
@@ -40,7 +52,7 @@ def idct(X, norm=None):
 
 
 @torch.no_grad()
-def low_rank_approx(Y, W, Psi_fn):
+def low_rank_approx(Y: Tensor, W: Tensor, Psi_fn: Callable[..., Tensor]):
     """
     given Y = A @ Om, (N, k)
     and W = Psi @ A, (l, M)
@@ -57,7 +69,7 @@ def low_rank_approx(Y, W, Psi_fn):
 
 
 @torch.no_grad()
-def fixed_rank_svd_approx(Y, W, Psi_fn, r):
+def fixed_rank_svd_approx(Y: Tensor, W: Tensor, Psi_fn: Callable[..., Tensor], r: int):
     """
     given Y = A @ Om, (N, k)
     and W = Psi @ A, (l, M)
@@ -76,7 +88,7 @@ def fixed_rank_svd_approx(Y, W, Psi_fn, r):
 
 
 @torch.no_grad()
-def sym_low_rank_approx(Y, W, Psi_fn):
+def sym_low_rank_approx(Y: Tensor, W: Tensor, Psi_fn: Callable[..., Tensor]):
     """
     given Y = A @ Om, (N, k)
     and W = Psi @ A, (l, N)
@@ -97,7 +109,7 @@ def sym_low_rank_approx(Y, W, Psi_fn):
 
 
 @torch.no_grad()
-def fixed_rank_eig_approx(Y, W, Psi_fn, r):
+def fixed_rank_eig_approx(Y: Tensor, W: Tensor, Psi_fn: Callable[..., Tensor], r: int):
     """
     returns U (N x r), D (r) such that A ~= U diag(D) U^T
     """

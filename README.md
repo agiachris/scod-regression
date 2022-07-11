@@ -82,8 +82,12 @@ The two recommended ways to configure SCOD is (a) the rank-*k* decomposition of 
 These correspond to `"num_eigs"` and `"sketch"` keys in a config dictionary passed to SCOD during instantiation.
 
 #### Dataset Pre-processing
-The `process_dataset()` expects a PyTorch `Dataset` or `IterableDataset` that returns input-target tuples. 
-However, if the dataset instead returns dictionaries, the `input_keys` and `target_key` arguments can be set to extract the input and target tensors for a given task.
+The `process_dataset()` expects a PyTorch `Dataset` or `IterableDataset` returning inputs and targets in the following forms:
+- `torch.Tensor`: The single tensor is assumed a model input (target is None);
+- `Union[List[torch.Tensor], Tuple[torch.Tensor, ...]]`: Iterables that may recursively contain Iterables of Tensors are flattened into a `List[torch.Tensor]`:
+    - The last tensor is assumed the target;
+    - If attribute `inputs_only` is set, all tensors are assumed model inputs;
+- `Dict[str, torch.Tensor]`: `input_keys` and `target_key` arguments can be set to extract the input and target tensors for a given task.
 
 **Important note:** targets are optional, only used when SCOD is configured with `"use_empirical_fischer": True`, and is not necessary to obtain high-quality uncertainty metrics.
 

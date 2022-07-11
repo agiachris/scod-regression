@@ -1,6 +1,7 @@
-from typing import Tuple, Type
+from typing import Type, Tuple
 
 import torch
+from torch import Tensor
 
 from .sketch_ops import SketchOperator, GaussianSketchOp
 from ..utils.utils import fixed_rank_eig_approx
@@ -41,7 +42,7 @@ class SinglePassPCA:
         self._W = torch.zeros(self._s, self._N, dtype=torch.float, device=self._device)
 
     @torch.no_grad()
-    def low_rank_update(self, v: torch.Tensor) -> None:
+    def low_rank_update(self, v: Tensor) -> None:
         """Processes a batch of columns of matrix A.
 
         args:
@@ -53,7 +54,7 @@ class SinglePassPCA:
         self._W += torch.sum(self._Psi(v) @ v.transpose(2, 1), dim=0)
 
     @torch.no_grad()
-    def eigs(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def eigs(self) -> Tuple[Tensor, Tensor]:
         """Returns a basis for the range of the top-2k left singular vectors.
 
         returns:

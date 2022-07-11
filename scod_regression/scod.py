@@ -1,17 +1,17 @@
 from typing import (
-    Dict,
-    List,
-    Tuple,
+    Optional,
     Type,
     Union,
-    Optional,
     Iterable,
     Iterator,
     Callable,
+    Tuple,
+    List,
+    Dict,
 )
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
 from functorch._src.make_functional import FunctionalModuleWithBuffers
@@ -19,9 +19,32 @@ from functorch._src.make_functional import FunctionalModuleWithBuffers
 from .distributions.distribution import DistributionLayer
 from .distributions.normal import NormalMeanParamLayer
 from .sketching import SinglePassPCA
+from .utils.utils import flatten
 
 
 class SCOD(nn.Module):
+    @property
+    def functional_model(
+        self,
+    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
+        """Get functorch functional model. Set parameter gradients to None."""
+        for p in self._params:
+            if p.grad is not None:
+                p.grad = None
+        return self._fmodel, self._params, self._buffers
+
+    @functional_model.setter
+    def functional_model(
+        self,
+        x: Tuple[
+            FunctionalModuleWithBuffers,
+            Iterator[nn.Parameter],
+            Dict[str, Optional[Tensor]],
+        ],
+    ):
+        """Set functorch functional model."""
+        self._fmodel, self._params, self._buffers = x
+
     def __init__(
         self,
         model: nn.Module,
@@ -54,13 +77,11 @@ class SCOD(nn.Module):
         self._device = device
 
         # Setup functional model
-        self._functional_model = make_functional_with_buffers(self._model)
+        self.functional_model = make_functional_with_buffers(self._model)
         self._num_params = int(sum(p.numel() for p in self._params if p.requires_grad))
 
         # batched Jacobian function transforms are dynamically setup
-        self._compute_batched_jacobians: Optional[
-            Callable[..., Tuple[torch.Tensor, torch.Tensor]]
-        ] = None
+        self._compute_batched_jacobians: Optional[Callable[..., Tuple[Tensor, Tensor]]] = None
 
         # SCOD parameters
         self._gauss_newton_eigs = nn.Parameter(
@@ -72,38 +93,13 @@ class SCOD(nn.Module):
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
 
-    @property
-    def functional_model(
-        self,
-    ) -> Tuple[
-        FunctionalModuleWithBuffers,
-        Iterator[nn.Parameter],
-        Dict[str, Optional[torch.Tensor]],
-    ]:
-        """Get functorch functional model. Set parameter gradients to None."""
-        for p in self._params:
-            if p.grad is not None:
-                p.grad = None
-        return self._fmodel, self._params, self._buffers
-
-    @property.setter
-    def functional_model(
-        self,
-        x: Tuple[
-            FunctionalModuleWithBuffers,
-            Iterator[nn.Parameter],
-            Dict[str, Optional[torch.Tensor]],
-        ],
-    ):
-        """Set functorch functional model."""
-        self._fmodel, self._params, self._buffers = x
-
     def process_dataset(
         self,
         dataset: Union[Dataset, IterableDataset],
         input_keys: Optional[List[str]] = None,
         target_key: Optional[str] = None,
         dataloader_kwargs: Dict = {},
+        inputs_only: bool = False,
     ) -> None:
         """Summarizes information about training data by logging gradient directions
         seen during training and forming an orthonormal basis with Gram-Schmidt.
@@ -111,10 +107,11 @@ class SCOD(nn.Module):
         and used for detecting generalization.
 
         args:
-            dataset: torch.utils.data.<Dataset/IterableDataset> returning a tuple or dictionary
+            dataset: torch.utils.data.<Dataset/IterableDataset> returning a list, tuple or dictionary
             input_keys: List[str] of keys to extract inputs if dataset returns a dictionary (default: None)
             target_key: str key to extract targets if the dataset returns a dictionary (default: None)
             dataloader_kwargs: dictionary of kwargs for torch.utils.data.DataLoader class (default: {})
+            inputs_only: the dataset only returns inputs
         """
 
         # Iterable dataset assumed to implement batching internally
@@ -126,12 +123,14 @@ class SCOD(nn.Module):
         dataloader = DataLoader(dataset, **dataloader_kwargs)
 
         # Incrementally build new sketch from samples
-        self._functional_model = make_functional_with_buffers(self._model)
+        self.functional_model = make_functional_with_buffers(self._model)
         sketch = self._sketch_cls(
             self._num_params, self._num_eigs, self._num_samples, device=self._device
         )
-        for _, sample in enumerate(dataloader):
-            inputs, targets, batch_size = self._format_sample(sample, input_keys, target_key)
+        for sample in dataloader:
+            inputs, targets, batch_size = self._format_sample(
+                sample, input_keys, target_key, inputs_only
+            )
             # Compute test weight Fischer: L_w = J_f.T @ L_theta
             L_w, _ = self._compute_jacobians_outputs(inputs, targets, batch_size)
             sketch.low_rank_update(L_w)
@@ -148,16 +147,16 @@ class SCOD(nn.Module):
 
     def forward(
         self,
-        sample: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]],
+        sample: Union[Tensor, Tuple[Tensor, ...], List[Tensor], Dict[str, Tensor]],
         input_keys: Optional[List[str]] = None,
         detach: bool = True,
         mode: int = 0,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ) -> Tuple[Tensor, Optional[Tensor], Optional[Tensor]]:
         """Computes the desired uncertainty quantity of samples, e.g., the posterior predictive
         variance or the local KL-divergence of the model on the test input.
 
         args:
-            sample: batch of tuple or dictionary samples
+            sample: batch of samples with type torch.Tensor, tuple, list or dict
             input_keys: List[str] of keys to extract inputs if dataset returns a dictionary (default: None)
             detach: remove jacobians and model outputs from the computation graph
             mode: int defining the return uncertainty metrics from SCOD (default: 0)
@@ -169,7 +168,7 @@ class SCOD(nn.Module):
         """
         assert self._configured, "Must call self.process_dataset() before self.forward()"
 
-        inputs, _, batch_size = self._format_sample(sample, input_keys=input_keys)
+        inputs, _, batch_size = self._format_sample(sample, input_keys, inputs_only=True)
         L_w, outputs = self._compute_jacobians_outputs(inputs, None, batch_size, detach=detach)
 
         if mode == 0:
@@ -183,9 +182,7 @@ class SCOD(nn.Module):
 
         return outputs, variance, uncertainty
 
-    def _predictive_variance_and_kl_divergence(
-        self, L: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _predictive_variance_and_kl_divergence(self, L: Tensor) -> Tuple[Tensor, Tensor]:
         """Computes the variance of the posterior predictive distribution and the local
         KL-divergence of the output distribution against the posterior weight distribution.
 
@@ -206,7 +203,7 @@ class SCOD(nn.Module):
         E = torch.sum(L**2, dim=(1, 2)) - torch.sum((torch.sqrt(D) * UT_L) ** 2, dim=(1, 2))
         return torch.diagonal(S, dim1=1, dim2=2), E.unsqueeze(-1)
 
-    def _posterior_predictive_variance(self, JT: torch.Tensor) -> torch.Tensor:
+    def _posterior_predictive_variance(self, JT: Tensor) -> Tensor:
         """Computes the variance of the posterior predictive distribution.
 
         args:
@@ -220,7 +217,7 @@ class SCOD(nn.Module):
         S = JT.transpose(2, 1) @ JT - UT_JT.transpose(2, 1) @ (D * UT_JT)
         return torch.diagonal(S, dim1=1, dim2=2)
 
-    def _local_kl_divergence(self, L: torch.Tensor) -> torch.Tensor:
+    def _local_kl_divergence(self, L: Tensor) -> Tensor:
         """Computes the local KL-divergence of the output distribution against the
         posterior weight distribution.
 
@@ -237,11 +234,11 @@ class SCOD(nn.Module):
 
     def _compute_jacobians_outputs(
         self,
-        inputs: List[torch.Tensor],
-        targets: Optional[torch.Tensor],
+        inputs: List[Tensor],
+        targets: Optional[Tensor],
         batch_size: int,
         detach: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[Tensor, Tensor]:
         """Computes the test or empirical weight Fischer of a batch of samples
         and the model outputs.
 
@@ -268,23 +265,19 @@ class SCOD(nn.Module):
             *self.functional_model, targets, *inputs
         )
         jacobians = self._format_jacobian(jacobians, batch_size, outputs.size(-1))
-        assert jacobians.dim() == 3 and jacobians.size() == (
-            batch_size,
-            self._num_params,
-            outputs.size(-1),
-        )
+        assert jacobians.size() == (batch_size, self._num_params, outputs.size(-1))
         if detach:
-            return jacobians.detach(), outputs.detach()
+            jacobians, outputs = jacobians.detach(), outputs.detach()
         return jacobians, outputs
 
     def _compute_fischer_stateless_model(
         self,
         fmodel: FunctionalModuleWithBuffers,
         params: Tuple[nn.Parameter],
-        buffers: Dict[str, Optional[torch.Tensor]],
-        target: torch.Tensor,
-        *input: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        buffers: Dict[str, Optional[Tensor]],
+        target: Tensor,
+        *input: Tensor,
+    ) -> Tuple[Tensor, Tensor]:
         """Compute the models weight Fischer for a single sample. There are two cases, below:
         1) Test weight Fischer: contribution C = (J_l.T @ J_l), J_l = d(-log p(y|x))/dw
         2) Empirical weight Fischer: contribution C = (J_f.T @ L_theta @ L_theta.T @ J_f), J_f = df(x)/dw
@@ -312,14 +305,15 @@ class SCOD(nn.Module):
 
     def _format_sample(
         self,
-        x: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]],
+        x: Union[Tensor, Tuple[Tensor, ...], List[Tensor], Dict[str, Tensor]],
         input_keys: Optional[List[str]] = None,
         target_key: Optional[str] = None,
-    ) -> Tuple[List[torch.Tensor], Optional[torch.Tensor], int]:
+        inputs_only: bool = False,
+    ) -> Tuple[List[Tensor], Optional[Tensor], int]:
         """Format dataset sample to be used by model and loss functions.
 
         args:
-            x: dataset sample of type tuple or dict
+            x: batch of samples with type Tensor, tuple, list or dict
             input_keys: List[str] of keys to extract inputs if dataset returns a dictionary (default: None)
             target_key: str key to extract targets if the dataset returns a dictionary (default: None)
 
@@ -328,26 +322,32 @@ class SCOD(nn.Module):
             targets: grouth truth target tensors
             batch_size: number of samples
         """
-        if isinstance(x, dict):
+        if isinstance(x, Tensor):
+            inputs, targets = [x.to(self._device)], None
+        elif isinstance(x, tuple) or isinstance(x, list):
+            x = [_x.to(self._device) for _x in flatten(x)]
+            inputs, targets = x[:-1], x[-1]
+            if inputs_only:
+                inputs, targets = inputs + [targets], None
+        elif isinstance(x, dict):
             assert input_keys is not None, "Require keys to extract inputs"
             inputs = [x[k].to(self._device) for k in input_keys]
             targets = x[target_key].to(self._device) if target_key is not None else None
-        elif isinstance(x, tuple):
-            inputs = [x[0].to(self._device)]
-            targets = x[1].to(self._device)
         else:
-            raise TypeError("x must be of type dict or tuple")
-
+            raise TypeError("x must be of type torch.Tensor, dict, tuple or list")
         batch_size = inputs[0].size(0)
-        assert not (
-            self._use_empirical_fischer and targets is None
-        ), "Require targets to compute empirical Fischer"
+
+        if inputs_only:
+            assert targets is None, "targets must be None"
+        else:
+            assert not (
+                self._use_empirical_fischer and targets is None
+            ), "Require targets to compute empirical Fischer"
+
         return inputs, targets, batch_size
 
     @staticmethod
-    def _format_jacobian(
-        x: Iterable[torch.Tensor], batch_size: int, output_dim: int
-    ) -> torch.Tensor:
+    def _format_jacobian(x: Iterable[Tensor], batch_size: int, output_dim: int) -> Tensor:
         """Returns flattenned, contiguous Jacobian.
 
         args:
