@@ -148,7 +148,7 @@ class SCOD(nn.Module):
 
     def forward(
         self,
-        sample,
+        sample: Union[Dict[str, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]],
         input_keys: Optional[List[str]] = None,
         detach: bool = True,
         mode: int = 0,
