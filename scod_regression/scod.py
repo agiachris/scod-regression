@@ -59,6 +59,11 @@ class SCOD(nn.Module):
         self._functional_model = make_functional_with_buffers(self._model)
         self._num_params = int(sum(p.numel() for p in self._params if p.requires_grad))
 
+        # batched Jacobian function transforms are dynamically setup
+        self._compute_batched_jacobians: Optional[
+            Callable[..., Tuple[torch.Tensor, torch.Tensor]]
+        ] = None
+
         # SCOD parameters
         self._gauss_newton_eigs = nn.Parameter(
             data=torch.zeros(self._num_eigs, device=self._device), requires_grad=False
@@ -70,10 +75,6 @@ class SCOD(nn.Module):
         self.configured = nn.Parameter(
             torch.zeros(1, dtype=torch.bool), requires_grad=False
         )
-
-        self._compute_batched_jacobians: Optional[
-            Callable[..., Tuple[torch.Tensor, torch.Tensor]]
-        ] = None
 
     @property
     def functional_model(
