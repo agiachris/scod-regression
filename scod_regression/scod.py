@@ -10,11 +10,13 @@ from typing import (
     Dict,
 )
 
+
 import torch
 from torch import nn, Tensor
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
 from functorch._src.make_functional import FunctionalModuleWithBuffers
+from collections import OrderedDict
 
 from .distributions.distribution import DistributionLayer
 from .distributions.normal import NormalMeanParamLayer
@@ -28,10 +30,10 @@ class SCOD(nn.Module):
         self,
     ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
         """Get functorch functional model. Set parameter gradients to None."""
-        for p in self._params:
+        for p in self._fparams:
             if p.grad is not None:
                 p.grad = None
-        return self._fmodel, self._params, self._buffers
+        return self._fmodel, self._fparams, self._fbuffers
 
     @functional_model.setter
     def functional_model(
@@ -43,7 +45,7 @@ class SCOD(nn.Module):
         ],
     ):
         """Set functorch functional model."""
-        self._fmodel, self._params, self._buffers = x
+        self._fmodel, self._fparams, self._fbuffers = x
 
     def __init__(
         self,
@@ -78,7 +80,7 @@ class SCOD(nn.Module):
 
         # Setup functional model
         self.functional_model = make_functional_with_buffers(self._model)
-        self._num_params = int(sum(p.numel() for p in self._params if p.requires_grad))
+        self._num_params = int(sum(p.numel() for p in self._fparams if p.requires_grad))
 
         # batched Jacobian function transforms are dynamically setup
         self._compute_batched_jacobians: Optional[Callable[..., Tuple[Tensor, Tensor]]] = None
@@ -93,6 +95,17 @@ class SCOD(nn.Module):
             requires_grad=False,
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
+
+    def save(self, path: str) -> None:
+        """Save SCOD parameters."""
+        state_dict = self.state_dict()
+        torch.save(state_dict, path)
+
+    def load(self, path: str) -> None:
+        """Load SCOD parameters and instantiate functional model."""
+        state_dict = torch.load(path)
+        super().load_state_dict(state_dict, strict=False)
+        self.functional_model = make_functional_with_buffers(self._model)
 
     def process_dataset(
         self,
@@ -261,7 +274,6 @@ class SCOD(nn.Module):
                 in_dims=in_dims,
             )
             self._in_dims = in_dims
-
         jacobians, outputs = self._compute_batched_jacobians(
             *self.functional_model, targets, *inputs
         )
