@@ -10,13 +10,11 @@ from typing import (
     Dict,
 )
 
-
 import torch
 from torch import nn, Tensor
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
 from functorch._src.make_functional import FunctionalModuleWithBuffers
-from collections import OrderedDict
 
 from .distributions.distribution import DistributionLayer
 from .distributions.normal import NormalMeanParamLayer
