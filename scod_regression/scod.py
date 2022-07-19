@@ -103,6 +103,15 @@ class SCOD(nn.Module):
         state_dict = torch.load(path, map_location=self._device)
         self.load_state_dict(state_dict)
 
+    def eval_mode(self) -> None:
+        self._model.eval()
+        self.functional_model = make_functional_with_buffers(self._model)
+
+    def train_mode(self) -> None:
+        """Switches the networks to train mode."""
+        self._model.train()
+        self.functional_model = make_functional_with_buffers(self._model)
+
     def process_dataset(
         self,
         dataset: Union[Dataset, IterableDataset],
