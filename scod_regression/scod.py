@@ -1,14 +1,4 @@
-from typing import (
-    Optional,
-    Type,
-    Union,
-    Iterable,
-    Iterator,
-    Callable,
-    Tuple,
-    List,
-    Dict,
-)
+from typing import Optional, Type, Union, Iterable, Iterator, Callable, Tuple, List, Dict, Any
 
 import torch
 from torch import nn, Tensor
@@ -94,6 +84,15 @@ class SCOD(nn.Module):
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
 
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+        """Load SCOD state dict.
+
+        args:
+            state_dict: Torch state dictionary.
+        """
+        super().load_state_dict(state_dict, strict=False)
+        self.functional_model = make_functional_with_buffers(self._model)
+
     def save(self, path: str) -> None:
         """Save SCOD parameters."""
         state_dict = self.state_dict()
@@ -101,9 +100,8 @@ class SCOD(nn.Module):
 
     def load(self, path: str) -> None:
         """Load SCOD parameters and instantiate functional model."""
-        state_dict = torch.load(path)
-        super().load_state_dict(state_dict, strict=False)
-        self.functional_model = make_functional_with_buffers(self._model)
+        state_dict = torch.load(path, map_location=self._device)
+        self.load_state_dict(state_dict)
 
     def process_dataset(
         self,
