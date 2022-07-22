@@ -394,13 +394,22 @@ class SCOD(nn.Module):
     def _format_output(
         x: Union[Tensor, Iterable[Tensor]], output_agg_func: Optional[Callable]
     ) -> Tensor:
-        """Returns formatted output."""
+        """Returns formatted output.
+
+        args:
+            x: Tensor or Iterable of Tensors
+            output_agg_func: output aggregation function if model outputs an Iterable
+
+        returns:
+            x: formatted output of shape (1 x d)
+        """
         if isinstance(x, (list, tuple)):
+            x = torch.stack(x)
+        if x.dim() == 2 and x.size(0) > 1:
             if output_agg_func is None:
                 raise ValueError(
                     "output_agg_func must be a torch function if model outputs an Iterable"
                 )
-            x = torch.stack(x)
             x = output_agg_func(x, dim=0)
         if x.dim() == 1:
             x = x.unsqueeze(0)
