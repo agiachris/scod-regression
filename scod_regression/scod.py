@@ -46,6 +46,7 @@ class SCOD(nn.Module):
         num_eigs: int = 10,
         num_samples: Optional[int] = None,
         device: Optional[Union[str, torch.device]] = None,
+        checkpoint: Optional[str] = None,
     ) -> None:
         """Wraps a trained model with functionality for adding epistemic uncertainty estimation.
         Accelerated with batched dataset processing and forward pass functionality.
@@ -59,6 +60,7 @@ class SCOD(nn.Module):
             num_eigs: low-rank estimate of the dataset Fischer (K)
             num_samples: sketch size (T)
             device: torch.device to store matrix sketch parameters
+            checkpoint: SCOD checkpoint with precomputed weights
         """
         super().__init__()
         self._model = model
@@ -89,6 +91,10 @@ class SCOD(nn.Module):
             requires_grad=False,
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
+
+        # Load checkpoint
+        if checkpoint is not None:
+            self.load(checkpoint)
 
     def set_functional_model(self) -> None:
         """Sets self.functional_model property with self._model."""
