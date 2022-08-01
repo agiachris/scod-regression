@@ -13,27 +13,6 @@ from .utils.utils import flatten
 
 
 class SCOD(nn.Module):
-    @property
-    def functional_model(
-        self,
-    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
-        """Get functorch functional model. Set parameter gradients to None."""
-        for p in self._fparams:
-            if p.grad is not None:
-                p.grad = None
-        return self._fmodel, self._fparams, self._fbuffers
-
-    @functional_model.setter
-    def functional_model(
-        self,
-        x: Tuple[
-            FunctionalModuleWithBuffers,
-            Iterator[nn.Parameter],
-            Dict[str, Optional[Tensor]],
-        ],
-    ):
-        """Set functorch functional model."""
-        self._fmodel, self._fparams, self._fbuffers = x
 
     def __init__(
         self,
@@ -83,6 +62,32 @@ class SCOD(nn.Module):
             requires_grad=False,
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
+
+    @property
+    def functional_model(
+        self,
+    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
+        """Get functorch functional model. Set parameter gradients to None."""
+        for p in self._fparams:
+            if p.grad is not None:
+                p.grad = None
+        return self._fmodel, self._fparams, self._fbuffers
+
+    @functional_model.setter
+    def functional_model(
+        self,
+        x: Tuple[
+            FunctionalModuleWithBuffers,
+            Iterator[nn.Parameter],
+            Dict[str, Optional[Tensor]],
+        ],
+    ):
+        """Set functorch functional model."""
+        self._fmodel, self._fparams, self._fbuffers = x
+
+    @property
+    def device(self):
+        return self._device
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         """Load SCOD state dict.
