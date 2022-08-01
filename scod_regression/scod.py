@@ -1,6 +1,19 @@
-from typing import Optional, Type, Union, Iterable, Iterator, Callable, Tuple, List, Dict, Any
+from typing import (
+    Optional,
+    Type,
+    Union,
+    Iterable,
+    Iterator,
+    Callable,
+    Tuple,
+    List,
+    Dict,
+    Mapping,
+    Any,
+)
 
-import torch
+import numpy as np  # type: ignore
+import torch  # type: ignore
 from torch import nn, Tensor
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
@@ -9,41 +22,71 @@ from functorch._src.make_functional import FunctionalModuleWithBuffers
 from .distributions.distribution import DistributionLayer
 from .distributions.normal import NormalMeanParamLayer
 from .sketching import SinglePassPCA
-from .utils.utils import flatten
+from .utils import tensors
 
 
 class SCOD(nn.Module):
+    """Wraps a trained model with functionality for epistemic uncertainty quantification.
+    Accelerated with batched dataset processing and forward pass functionality."""
+
+    @property
+    def device(self) -> torch.device:
+        """Get current torch device."""
+        return self._device
+
+    @property
+    def functional_model(
+        self,
+    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
+        """Get functorch functional model."""
+        for p in self._fparams:
+            if p.grad is not None:
+                p.grad = None
+        return self._fmodel, self._fparams, self._fbuffers
+
+    @functional_model.setter
+    def functional_model(
+        self, functional_model: Tuple[Any, Iterator[nn.Parameter], Dict[str, Optional[Tensor]]]
+    ):
+        """Set functorch functional model."""
+        self._fmodel, self._fparams, self._fbuffers = functional_model
 
     def __init__(
         self,
         model: nn.Module,
+        output_agg_func: Optional[Union[str, Callable]] = None,
         output_dist_cls: Type[DistributionLayer] = NormalMeanParamLayer,
         sketch_cls: Type[SinglePassPCA] = SinglePassPCA,
         use_empirical_fischer: bool = False,
         num_eigs: int = 10,
         num_samples: Optional[int] = None,
-        device: torch.device = torch.device("cpu"),
+        device: Optional[Union[str, torch.device]] = None,
+        checkpoint: Optional[str] = None,
     ) -> None:
-        """Wraps a trained model with functionality for adding epistemic uncertainty estimation.
-        Accelerated with batched dataset processing and forward pass functionality.
+        """Construct SCOD wrapper for nn.Module.
 
         args:
             model: base PyTorch model to equip with uncertainty metric
+            output_agg_func: output aggregation function if model outputs an Iterable
             output_dist_cls: distributions.DistributionLayer subclass output probability distribution
             sketch_cls: matrix sketching algorithm class (Gaussian or SRFT)
             use_empirical_fischer: weight sketch samples by loss
             num_eigs: low-rank estimate of the dataset Fischer (K)
             num_samples: sketch size (T)
             device: torch.device to store matrix sketch parameters
+            checkpoint: SCOD checkpoint with precomputed weights
         """
         super().__init__()
         self._model = model
+        self._output_agg_func: Optional[Callable[..., Tensor]] = (
+            getattr(torch, output_agg_func) if isinstance(output_agg_func, str) else output_agg_func
+        )
         self._output_dist = output_dist_cls()
         self._sketch_cls = sketch_cls
         self._use_empirical_fischer = use_empirical_fischer
         self._num_eigs = num_eigs
-        self._num_samples: int = num_samples if num_samples is not None else self._num_eigs * 6 + 4
-        self._device = device
+        self._num_samples = num_samples if num_samples is not None else self._num_eigs * 6 + 4
+        self._device = tensors.device(device)
 
         # Setup functional model
         self.functional_model = make_functional_with_buffers(self._model)
@@ -63,40 +106,9 @@ class SCOD(nn.Module):
         )
         self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
 
-    @property
-    def functional_model(
-        self,
-    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
-        """Get functorch functional model. Set parameter gradients to None."""
-        for p in self._fparams:
-            if p.grad is not None:
-                p.grad = None
-        return self._fmodel, self._fparams, self._fbuffers
-
-    @functional_model.setter
-    def functional_model(
-        self,
-        x: Tuple[
-            FunctionalModuleWithBuffers,
-            Iterator[nn.Parameter],
-            Dict[str, Optional[Tensor]],
-        ],
-    ):
-        """Set functorch functional model."""
-        self._fmodel, self._fparams, self._fbuffers = x
-
-    @property
-    def device(self):
-        return self._device
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Load SCOD state dict.
-
-        args:
-            state_dict: Torch state dictionary.
-        """
-        super().load_state_dict(state_dict, strict=False)
-        self.functional_model = make_functional_with_buffers(self._model)
+        # Load checkpoint
+        if checkpoint is not None:
+            self.load(checkpoint)
 
     def save(self, path: str) -> None:
         """Save SCOD parameters."""
@@ -104,17 +116,37 @@ class SCOD(nn.Module):
         torch.save(state_dict, path)
 
     def load(self, path: str) -> None:
-        """Load SCOD parameters and instantiate functional model."""
+        """Load SCOD parameters."""
         state_dict = torch.load(path, map_location=self._device)
         self.load_state_dict(state_dict)
 
-    def eval_mode(self) -> None:
-        self._model.eval()
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False) -> None:
+        """Load SCOD state dict.
+
+        args:
+            state_dict: torch state dictionary.
+        """
+        super().load_state_dict(state_dict, strict=strict)
         self.functional_model = make_functional_with_buffers(self._model)
 
+    def to(self, device: Union[str, torch.device]) -> "SCOD":
+        """Move SCOD module and nn.Parameters to device."""
+        self._device = tensors.device(device)
+        self._gauss_newton_eigs.to(self._device)
+        self._gauss_newton_basis.to(self._device)
+        self._configured.to(self._device)
+        self._model.to(self._device)
+        self.functional_model = make_functional_with_buffers(self._model)
+        return self
+
     def train_mode(self) -> None:
-        """Switches the networks to train mode."""
+        """Transfer model to train mode."""
         self._model.train()
+        self.functional_model = make_functional_with_buffers(self._model)
+
+    def eval_mode(self) -> None:
+        """Transfer model to evaluation mode."""
+        self._model.eval()
         self.functional_model = make_functional_with_buffers(self._model)
 
     def process_dataset(
@@ -140,11 +172,11 @@ class SCOD(nn.Module):
 
         # Iterable dataset assumed to implement batching internally
         if isinstance(dataset, IterableDataset):
-            if "batch_size" in dataloader_kwargs:
-                del dataloader_kwargs["batch_size"]
-            if "shuffle" in dataloader_kwargs:
-                del dataloader_kwargs["shuffle"]
-        dataloader = DataLoader(dataset, **dataloader_kwargs)
+            dataloader = iter(dataset)
+        elif isinstance(dataset, Dataset):
+            dataset = DataLoader(dataset, **dataloader_kwargs)
+        else:
+            raise ValueError("Dataset must be one of torch Dataset or IterableDataset")
 
         # Incrementally build new sketch from samples
         self.functional_model = make_functional_with_buffers(self._model)
@@ -171,7 +203,13 @@ class SCOD(nn.Module):
 
     def forward(
         self,
-        sample: Union[Tensor, Tuple[Tensor, ...], List[Tensor], Dict[str, Tensor]],
+        sample: Union[
+            Tensor,
+            np.ndarray,
+            Tuple[Union[Tensor, np.ndarray], ...],
+            List[Union[Tensor, np.ndarray]],
+            Dict[str, Union[Tensor, np.ndarray]],
+        ],
         input_keys: Optional[List[str]] = None,
         detach: bool = True,
         mode: int = 0,
@@ -284,6 +322,7 @@ class SCOD(nn.Module):
                 in_dims=in_dims,
             )
             self._in_dims = in_dims
+        assert self._compute_batched_jacobians is not None
         jacobians, outputs = self._compute_batched_jacobians(
             *self.functional_model, targets, *inputs
         )
@@ -318,6 +357,7 @@ class SCOD(nn.Module):
         """
         input = tuple(x.unsqueeze(0) for x in input)
         outputs = fmodel(params, buffers, *input)
+        outputs = self._format_output(outputs)
         pre_jacobians = (
             self._output_dist.apply_sqrt_F(outputs)
             if not self._use_empirical_fischer
@@ -328,7 +368,13 @@ class SCOD(nn.Module):
 
     def _format_sample(
         self,
-        x: Union[Tensor, Tuple[Tensor, ...], List[Tensor], Dict[str, Tensor]],
+        x: Union[
+            Tensor,
+            np.ndarray,
+            Tuple[Union[Tensor, np.ndarray], ...],
+            List[Union[Tensor, np.ndarray]],
+            Dict[str, Union[Tensor, np.ndarray]],
+        ],
         input_keys: Optional[List[str]] = None,
         target_key: Optional[str] = None,
         inputs_only: bool = False,
@@ -339,23 +385,25 @@ class SCOD(nn.Module):
             x: batch of samples with type Tensor, tuple, list or dict
             input_keys: List[str] of keys to extract inputs if dataset returns a dictionary (default: None)
             target_key: str key to extract targets if the dataset returns a dictionary (default: None)
+            inputs_only: the dataset only returns inputs
 
         returns:
             inputs: model input tensors
             targets: grouth truth target tensors
             batch_size: number of samples
         """
+        x = tensors.to(x, self._device)
         if isinstance(x, Tensor):
-            inputs, targets = [x.to(self._device)], None
+            inputs, targets = [x], None
         elif isinstance(x, tuple) or isinstance(x, list):
-            x = [_x.to(self._device) for _x in flatten(x)]
+            x = [_x for _x in tensors.flatten(x)]
             inputs, targets = x[:-1], x[-1]
             if inputs_only:
                 inputs, targets = inputs + [targets], None
         elif isinstance(x, dict):
             assert input_keys is not None, "Require keys to extract inputs"
-            inputs = [x[k].to(self._device) for k in input_keys]
-            targets = x[target_key].to(self._device) if target_key is not None else None
+            inputs = [x[k] for k in input_keys]
+            targets = x[target_key] if target_key is not None else None
         else:
             raise TypeError("x must be of type torch.Tensor, dict, tuple or list")
         batch_size = inputs[0].size(0)
@@ -368,6 +416,28 @@ class SCOD(nn.Module):
             ), "Require targets to compute empirical Fischer"
 
         return inputs, targets, batch_size
+
+    def _format_output(self, x: Union[Tensor, Tuple[Tensor, ...], List[Tensor]]) -> Tensor:
+        """Returns formatted output.
+
+        args:
+            x: Tensor or Iterable of Tensors
+            output_agg_func: output aggregation function if model outputs an Iterable
+
+        returns:
+            x: formatted output of shape (1 x d)
+        """
+        if isinstance(x, (tuple, list)):
+            x = torch.stack(x, dim=0)
+        if x.dim() == 2 and x.size(0) > 1:
+            if self._output_agg_func is None:
+                raise ValueError(
+                    "output_agg_func must be a torch function if model outputs an Iterable"
+                )
+            x = self._output_agg_func(x, dim=0)
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+        return x
 
     @staticmethod
     def _format_jacobian(x: Iterable[Tensor], batch_size: int, output_dim: int) -> Tensor:

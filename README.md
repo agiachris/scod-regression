@@ -1,4 +1,4 @@
-# SCOD-Module
+# SCOD-Regression
 An implementation of Sketching Curvature for Efficient Out-of-Distribution Detection for Deep Neural Network (SCOD, [paper](https://arxiv.org/abs/2102.12567)) **regression tasks** in the form of a wrapper that can be applied to any PyTorch model.
 
 ![Figure](figures/scod_figure.png)

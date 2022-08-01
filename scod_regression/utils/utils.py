@@ -1,17 +1,8 @@
-from typing import Optional, Union, Callable, Tuple, List
+from typing import Optional, Callable
 
 import torch
 from torch import Tensor
 import numpy as np
-
-
-def flatten(x: Union[Tuple[Tensor, ...], List[Tensor]]) -> List[Tensor]:
-    """Flatten Iterable of Iterables recursively."""
-    if not x:
-        return list(x)
-    if isinstance(x[0], (tuple, list)):
-        return flatten(x[0]) + flatten(x[1:])
-    return list(x[:1]) + flatten(x[1:])
 
 
 def idct(X: Tensor, norm: Optional[str] = None) -> Tensor:
