@@ -24,3 +24,6 @@ dependencies = [
   "functorch", 
   "tqdm"
 ]
+
+[tools.setuptools]
+packages = ["scod_regression"]
