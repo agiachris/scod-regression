@@ -25,5 +25,5 @@ dependencies = [
   "tqdm"
 ]
 
-[tools.setuptools]
+[tool.setuptools]
 packages = ["scod_regression"]
