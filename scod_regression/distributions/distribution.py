@@ -22,7 +22,7 @@ class DistributionLayer(nn.Module):
     def marginalize_gaussian(
         self, z_mean: torch.Tensor, z_var: torch.Tensor
     ) -> distributions.Distribution:
-        """
+        r"""
         If z \sim N(z_mean, z_var), estimates p(y) = E_z [ p(y \mid z) ]
 
         Args:
@@ -38,7 +38,7 @@ class DistributionLayer(nn.Module):
     def marginalize_samples(
         self, z_samples: torch.Tensor, batch_idx: int = 0
     ) -> distributions.Distribution:
-        """
+        r"""
         Given samples of z, estimates p(y) = E_z [ p(y \mid z) ] over empirical distribution
 
         Args:
@@ -52,7 +52,7 @@ class DistributionLayer(nn.Module):
 
     @abstractmethod
     def apply_sqrt_F(self, z: torch.Tensor) -> torch.Tensor:
-        """
+        r"""
         The Fisher Information Matrix of the output distribution is given by
             $$ F = E_{y \sim p(y | z)}[ d^2/dz^2 \log p (y \mid z)] $$
         If we factor F(z) = L(z) L(z)^T
