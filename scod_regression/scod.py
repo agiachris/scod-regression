@@ -26,7 +26,7 @@ from .utils import tensors
 
 
 class SCOD(nn.Module):
-    """Wraps a trained model with functionality for epistemic uncertainty quantification.
+    """Wraps a trained model with functionality for epistemic uncertainty quantification. 
     Accelerated with batched dataset processing and forward pass functionality."""
 
     @property
@@ -37,7 +37,11 @@ class SCOD(nn.Module):
     @property
     def functional_model(
         self,
-    ) -> Tuple[FunctionalModuleWithBuffers, Iterator[nn.Parameter], Dict[str, Optional[Tensor]],]:
+    ) -> Tuple[
+        FunctionalModuleWithBuffers,
+        Iterator[nn.Parameter],
+        Dict[str, Optional[Tensor]],
+    ]:
         """Get functorch functional model."""
         for p in self._fparams:
             if p.grad is not None:
@@ -46,7 +50,10 @@ class SCOD(nn.Module):
 
     @functional_model.setter
     def functional_model(
-        self, functional_model: Tuple[Any, Iterator[nn.Parameter], Dict[str, Optional[Tensor]]]
+        self,
+        functional_model: Tuple[
+            Any, Iterator[nn.Parameter], Dict[str, Optional[Tensor]]
+        ],
     ):
         """Set functorch functional model."""
         self._fmodel, self._fparams, self._fbuffers = functional_model
@@ -79,13 +86,17 @@ class SCOD(nn.Module):
         super().__init__()
         self._model = model
         self._output_agg_func: Optional[Callable[..., Tensor]] = (
-            getattr(torch, output_agg_func) if isinstance(output_agg_func, str) else output_agg_func
+            getattr(torch, output_agg_func)
+            if isinstance(output_agg_func, str)
+            else output_agg_func
         )
         self._output_dist = output_dist_cls()
         self._sketch_cls = sketch_cls
         self._use_empirical_fischer = use_empirical_fischer
         self._num_eigs = num_eigs
-        self._num_samples = num_samples if num_samples is not None else self._num_eigs * 6 + 4
+        self._num_samples = (
+            num_samples if num_samples is not None else self._num_eigs * 6 + 4
+        )
         self._device = tensors.device(device)
 
         # Setup functional model
@@ -93,7 +104,9 @@ class SCOD(nn.Module):
         self._num_params = int(sum(p.numel() for p in self._fparams if p.requires_grad))
 
         # batched Jacobian function transforms are dynamically setup
-        self._compute_batched_jacobians: Optional[Callable[..., Tuple[Tensor, Tensor]]] = None
+        self._compute_batched_jacobians: Optional[
+            Callable[..., Tuple[Tensor, Tensor]]
+        ] = None
         self._in_dims: Optional[Tuple[Optional[int], ...]] = None
 
         # SCOD parameters
@@ -104,7 +117,9 @@ class SCOD(nn.Module):
             data=torch.zeros(self._num_params, self._num_eigs, device=self._device),
             requires_grad=False,
         )
-        self._configured = nn.Parameter(torch.zeros(1, dtype=torch.bool), requires_grad=False)
+        self._configured = nn.Parameter(
+            torch.zeros(1, dtype=torch.bool), requires_grad=False
+        )
 
         # Load checkpoint
         if checkpoint is not None:
@@ -120,7 +135,9 @@ class SCOD(nn.Module):
         state_dict = torch.load(path, map_location=self._device)
         self.load_state_dict(state_dict)
 
-    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = False) -> None:
+    def load_state_dict(
+        self, state_dict: Mapping[str, Any], strict: bool = False
+    ) -> None:
         """Load SCOD state dict.
 
         args:
@@ -195,9 +212,9 @@ class SCOD(nn.Module):
         del L_w
         eigs, basis = sketch.eigs()
         del sketch
-        self._gauss_newton_eigs.data = torch.clamp_min(eigs[-self._num_eigs :], min=0).to(
-            self._device
-        )
+        self._gauss_newton_eigs.data = torch.clamp_min(
+            eigs[-self._num_eigs :], min=0
+        ).to(self._device)
         self._gauss_newton_basis.data = basis[:, -self._num_eigs :].to(self._device)
         self._configured.data = torch.ones(1, dtype=torch.bool).to(self._device)
 
@@ -228,10 +245,16 @@ class SCOD(nn.Module):
             variance: posterior predictive variance of shape (B x d)
             uncertainty: local KL-divergence scalar of size (B x 1)
         """
-        assert self._configured, "Must call self.process_dataset() before self.forward()"
+        assert (
+            self._configured
+        ), "Must call self.process_dataset() before self.forward()"
 
-        inputs, _, batch_size = self._format_sample(sample, input_keys, inputs_only=True)
-        L_w, outputs = self._compute_jacobians_outputs(inputs, None, batch_size, detach=detach)
+        inputs, _, batch_size = self._format_sample(
+            sample, input_keys, inputs_only=True
+        )
+        L_w, outputs = self._compute_jacobians_outputs(
+            inputs, None, batch_size, detach=detach
+        )
 
         if mode == 0:
             variance, uncertainty = self._predictive_variance_and_kl_divergence(L_w)
@@ -244,7 +267,9 @@ class SCOD(nn.Module):
 
         return outputs, variance, uncertainty
 
-    def _predictive_variance_and_kl_divergence(self, L: Tensor) -> Tuple[Tensor, Tensor]:
+    def _predictive_variance_and_kl_divergence(
+        self, L: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         """Computes the variance of the posterior predictive distribution and the local
         KL-divergence of the output distribution against the posterior weight distribution.
 
@@ -262,7 +287,9 @@ class SCOD(nn.Module):
         UT_L = self._gauss_newton_basis.t() @ L
         D = (self._gauss_newton_eigs / (1 + self._gauss_newton_eigs))[:, None]
         S = L.transpose(2, 1) @ L - UT_L.transpose(2, 1) @ (D * UT_L)
-        E = torch.sum(L**2, dim=(1, 2)) - torch.sum((torch.sqrt(D) * UT_L) ** 2, dim=(1, 2))
+        E = torch.sum(L**2, dim=(1, 2)) - torch.sum(
+            (torch.sqrt(D) * UT_L) ** 2, dim=(1, 2)
+        )
         return torch.diagonal(S, dim1=1, dim2=2), E.unsqueeze(-1)
 
     def _posterior_predictive_variance(self, JT: Tensor) -> Tensor:
@@ -290,7 +317,9 @@ class SCOD(nn.Module):
             E: local KL-divergence scalar of size (B x 1)
         """
         UT_L = self._gauss_newton_basis.t() @ L
-        D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[:, None]
+        D = torch.sqrt((self._gauss_newton_eigs / (1 + self._gauss_newton_eigs)))[
+            :, None
+        ]
         E = torch.sum(L**2, dim=(1, 2)) - torch.sum((D * UT_L) ** 2, dim=(1, 2))
         return E.unsqueeze(-1)
 
@@ -314,11 +343,17 @@ class SCOD(nn.Module):
             jacobians: Jacobians of size (B x N x d)
             outputs: model predictions parameterizing the output distribution of size (B x d)
         """
-        in_dims = (None,) * 3 + ((0,) if targets is not None else (None,)) + (0,) * len(inputs)
+        in_dims = (
+            (None,) * 3
+            + ((0,) if targets is not None else (None,))
+            + (0,) * len(inputs)
+        )
         if self._compute_batched_jacobians is None or in_dims != self._in_dims:
             # Setup batched Jacobian function transforms
             self._compute_batched_jacobians = vmap(
-                func=jacrev(self._compute_fischer_stateless_model, argnums=1, has_aux=True),
+                func=jacrev(
+                    self._compute_fischer_stateless_model, argnums=1, has_aux=True
+                ),
                 in_dims=in_dims,
             )
             self._in_dims = in_dims
@@ -417,7 +452,9 @@ class SCOD(nn.Module):
 
         return inputs, targets, batch_size
 
-    def _format_output(self, x: Union[Tensor, Tuple[Tensor, ...], List[Tensor]]) -> Tensor:
+    def _format_output(
+        self, x: Union[Tensor, Tuple[Tensor, ...], List[Tensor]]
+    ) -> Tensor:
         """Returns formatted output.
 
         args:
@@ -440,7 +477,9 @@ class SCOD(nn.Module):
         return x
 
     @staticmethod
-    def _format_jacobian(x: Iterable[Tensor], batch_size: int, output_dim: int) -> Tensor:
+    def _format_jacobian(
+        x: Iterable[Tensor], batch_size: int, output_dim: int
+    ) -> Tensor:
         """Returns flattenned, contiguous Jacobian.
 
         args:
@@ -451,5 +490,7 @@ class SCOD(nn.Module):
         returns:
             x: formatted Jacobian of shape (B x N x d)
         """
-        x = torch.cat([_x.contiguous().view(batch_size, output_dim, -1) for _x in x], dim=-1)
+        x = torch.cat(
+            [_x.contiguous().view(batch_size, output_dim, -1) for _x in x], dim=-1
+        )
         return x.transpose(2, 1)
