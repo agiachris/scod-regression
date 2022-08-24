@@ -46,7 +46,7 @@ class SCOD(nn.Module):
         for p in self._fparams:
             if p.grad is not None:
                 p.grad = None
-        return self._fmodel, self._fparams, self._fbuffers
+        return self._fmodel[0], self._fparams, self._fbuffers
 
     @functional_model.setter
     def functional_model(
@@ -56,7 +56,10 @@ class SCOD(nn.Module):
         ],
     ):
         """Set functorch functional model."""
-        self._fmodel, self._fparams, self._fbuffers = functional_model
+        fmodel, self._fparams, self._fbuffers = functional_model
+        # Put fmodel in a list to avoid registering it as a child module.
+        # torch.nn.Module._apply() does not work with child FunctionModules.
+        self._fmodel = [fmodel]
 
     def __init__(
         self,
@@ -148,15 +151,16 @@ class SCOD(nn.Module):
         super().load_state_dict(state_dict, strict=strict)
         self.functional_model = make_functional_with_buffers(self._model)
 
+    def _apply(self, fn) -> "SCOD":
+        """Called internally by torch to move tensors to a device."""
+        super()._apply(fn)
+        self.functional_model = make_functional_with_buffers(self._model)
+        return self
+
     def to(self, device: Union[str, torch.device]) -> "SCOD":
         """Move SCOD module and nn.Parameters to device."""
         self._device = tensors.device(device)
-        self._output_dist.to(self._device)
-        self._gauss_newton_eigs.to(self._device)
-        self._gauss_newton_basis.to(self._device)
-        self._configured.to(self._device)
-        self._model.to(self._device)
-        self.functional_model = make_functional_with_buffers(self._model)
+        super().to(self.device)
         return self
 
     def train_mode(self) -> None:
