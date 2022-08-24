@@ -125,6 +125,8 @@ class SCOD(nn.Module):
         if checkpoint is not None:
             self.load(checkpoint)
 
+        self.to(self.device)
+
     def save(self, path: str) -> None:
         """Save SCOD parameters."""
         state_dict = self.state_dict()
@@ -149,6 +151,7 @@ class SCOD(nn.Module):
     def to(self, device: Union[str, torch.device]) -> "SCOD":
         """Move SCOD module and nn.Parameters to device."""
         self._device = tensors.device(device)
+        self._output_dist.to(self._device)
         self._gauss_newton_eigs.to(self._device)
         self._gauss_newton_basis.to(self._device)
         self._configured.to(self._device)
