@@ -12,6 +12,8 @@ from typing import (
     Any,
 )
 
+import inspect
+import functools
 import numpy as np  # type: ignore
 import torch  # type: ignore
 from torch import nn, Tensor
@@ -26,7 +28,7 @@ from .utils import tensors
 
 
 class SCOD(nn.Module):
-    """Wraps a trained model with functionality for epistemic uncertainty quantification. 
+    """Wraps a trained model with functionality for epistemic uncertainty quantification.
     Accelerated with batched dataset processing and forward pass functionality."""
 
     @property
@@ -40,13 +42,17 @@ class SCOD(nn.Module):
     ) -> Tuple[
         FunctionalModuleWithBuffers,
         Iterator[nn.Parameter],
+        Iterator[nn.Parameter],
         Dict[str, Optional[Tensor]],
     ]:
         """Get functorch functional model."""
-        for p in self._fparams:
+        # for p in self._fstatic_params + self._fgrad_params:
+        #     if p.grad is not None:
+        #         p.grad = None
+        for p in self._fgrad_params:
             if p.grad is not None:
                 p.grad = None
-        return self._fmodel[0], self._fparams, self._fbuffers
+        return self._fmodel[0], self._fstatic_params, self._fgrad_params, self._fbuffers
 
     @functional_model.setter
     def functional_model(
@@ -56,9 +62,21 @@ class SCOD(nn.Module):
         ],
     ):
         """Set functorch functional model."""
-        fmodel, self._fparams, self._fbuffers = functional_model
-        # Put fmodel in a list to avoid registering it as a child module.
-        # torch.nn.Module._apply() does not work with child FunctionModules.
+        fmodel, fparams, self._fbuffers = functional_model
+
+        # Ensure frozen parameters come before requires grad parameters
+        filter = [not p.requires_grad for p in fparams]
+        m = sum(filter)
+        if not all(x for x in filter[:m]) or any(x for x in filter[m:]):
+            raise ValueError(
+                "Frozen and requires gradient layers cannot be interleaved."
+            )
+
+        self._fstatic_params = tuple(p for p in fparams if not p.requires_grad)
+        self._fgrad_params = tuple(p for p in fparams if p.requires_grad)
+
+        # Put fmodel in a list to avoid registering it as a child module
+        # torch.nn.Module._apply() does not work with child FunctionModules
         self._fmodel = [fmodel]
 
     def __init__(
@@ -88,7 +106,9 @@ class SCOD(nn.Module):
         """
         super().__init__()
         self._model = model
-        self._output_agg_func: Optional[Callable[..., Tensor]] = (
+        self._output_agg_func: Optional[
+            Callable[[Tensor, int], Union[Tensor, Tuple[Tensor, Tensor]]]
+        ] = (
             getattr(torch, output_agg_func)
             if isinstance(output_agg_func, str)
             else output_agg_func
@@ -104,7 +124,7 @@ class SCOD(nn.Module):
 
         # Setup functional model
         self.functional_model = make_functional_with_buffers(self._model)
-        self._num_params = int(sum(p.numel() for p in self._fparams if p.requires_grad))
+        self._num_params = int(sum(p.numel() for p in self._fgrad_params))
 
         # batched Jacobian function transforms are dynamically setup
         self._compute_batched_jacobians: Optional[
@@ -269,8 +289,10 @@ class SCOD(nn.Module):
             variance, uncertainty = self._posterior_predictive_variance(L_w), None
         elif mode == 2:
             variance, uncertainty = None, self._local_kl_divergence(L_w)
+        elif mode == 3:
+            variance, uncertainty = None, None
         else:
-            raise NotImplementedError(f"Specified mode {mode} not in [0, 1, 2]")
+            raise NotImplementedError(f"Specified mode {mode} not in [0, 1, 2, 3]")
 
         return outputs, variance, uncertainty
 
@@ -350,8 +372,15 @@ class SCOD(nn.Module):
             jacobians: Jacobians of size (B x N x d)
             outputs: model predictions parameterizing the output distribution of size (B x d)
         """
+        forward_signature = inspect.signature(self._model.forward)
+        num_args = len(forward_signature.parameters)
+        if num_args == 1 and len(inputs) > 1:
+            inputs = [torch.cat(inputs, dim=-1)]
+        elif len(inputs) < num_args:
+            raise ValueError("self._model.forward() expects more inputs than provided")
+
         in_dims = (
-            (None,) * 3
+            (None,) * 4
             + ((0,) if targets is not None else (None,))
             + (0,) * len(inputs)
         )
@@ -359,26 +388,34 @@ class SCOD(nn.Module):
             # Setup batched Jacobian function transforms
             self._compute_batched_jacobians = vmap(
                 func=jacrev(
-                    self._compute_fischer_stateless_model, argnums=1, has_aux=True
+                    self._compute_fischer_stateless_model, argnums=2, has_aux=True
                 ),
                 in_dims=in_dims,
             )
             self._in_dims = in_dims
         assert self._compute_batched_jacobians is not None
+
         jacobians, outputs = self._compute_batched_jacobians(
             *self.functional_model, targets, *inputs
         )
         jacobians = self._format_jacobian(jacobians, batch_size, outputs.size(-1))
-        assert jacobians.size() == (batch_size, self._num_params, outputs.size(-1))
+
+        breakpoint()
+
+        if not jacobians.size() == (batch_size, self._num_params, outputs.size(-1)):
+            raise ValueError(f"Failed to parse jacobian of size {jacobians.size()}")
+
         if detach:
             jacobians, outputs = jacobians.detach(), outputs.detach()
+
         return jacobians, outputs
 
     def _compute_fischer_stateless_model(
         self,
         fmodel: FunctionalModuleWithBuffers,
-        params: Tuple[nn.Parameter],
-        buffers: Dict[str, Optional[Tensor]],
+        fstatic_params: Tuple[nn.Parameter],
+        fgrad_params: Tuple[nn.Parameter],
+        fbuffers: Dict[str, Optional[Tensor]],
         target: Tensor,
         *input: Tensor,
     ) -> Tuple[Tensor, Tensor]:
@@ -388,8 +425,9 @@ class SCOD(nn.Module):
 
         args:
             fmodel: functional form of model casted from nn.Module
-            params: parameters of functional model
-            buffers: buffers of the functional model
+            fstatic_params: functional model parameters that are frozen
+            fgrad_params: functional model parameters that require gradients
+            fbuffers: buffers of the functional model
             target: grouth truth target tensor
             *input: model input tensors
 
@@ -398,7 +436,7 @@ class SCOD(nn.Module):
             output: model predictions parameterizing the output distribution of size (d)
         """
         input = tuple(x.unsqueeze(0) for x in input)
-        outputs = fmodel(params, buffers, *input)
+        outputs = fmodel(fstatic_params + fgrad_params, fbuffers, *input)
         outputs = self._format_output(outputs)
         pre_jacobians = (
             self._output_dist.apply_sqrt_F(outputs)
@@ -473,14 +511,24 @@ class SCOD(nn.Module):
         """
         if isinstance(x, (tuple, list)):
             x = torch.stack(x, dim=0)
+
         if x.dim() == 2 and x.size(0) > 1:
             if self._output_agg_func is None:
                 raise ValueError(
                     "output_agg_func must be a torch function if model outputs an Iterable"
                 )
             x = self._output_agg_func(x, dim=0)
+            if not isinstance(x, Tensor):
+                try:
+                    x: Tensor = getattr(x, "values")
+                except AttributeError:
+                    raise ValueError(
+                        f"Aggregation function {self._output_agg_func} output of type {type(x)} cannot be parsed"
+                    )
+
         if x.dim() == 1:
             x = x.unsqueeze(0)
+
         return x
 
     @staticmethod
@@ -500,4 +548,5 @@ class SCOD(nn.Module):
         x = torch.cat(
             [_x.contiguous().view(batch_size, output_dim, -1) for _x in x], dim=-1
         )
+
         return x.transpose(2, 1)
