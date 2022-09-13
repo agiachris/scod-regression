@@ -400,8 +400,6 @@ class SCOD(nn.Module):
         )
         jacobians = self._format_jacobian(jacobians, batch_size, outputs.size(-1))
 
-        breakpoint()
-
         if not jacobians.size() == (batch_size, self._num_params, outputs.size(-1)):
             raise ValueError(f"Failed to parse jacobian of size {jacobians.size()}")
 
