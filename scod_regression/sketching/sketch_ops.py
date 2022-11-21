@@ -8,9 +8,7 @@ from ..utils.utils import idct, batch_idct
 
 class SketchOperator(nn.Module):
     @abstractmethod
-    def __init__(
-        self, d: int, N: int, device: torch.device = torch.device("cpu")
-    ) -> None:
+    def __init__(self, d: int, N: int, device: torch.device = torch.device("cpu")) -> None:
         """Implements d x N linear operator for sketching.
 
         args:
