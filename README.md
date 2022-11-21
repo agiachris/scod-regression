@@ -18,8 +18,8 @@ Tested on Ubuntu 16.04, 18.04 and macOS Monterey with Python 3.7.
 This package can be installed via pip as shown below.
 
 ```bash
-git clone https://github.com/agiachris/scod-module.git
-cd scod-module && pip install .
+git clone https://github.com/agiachris/scod-regression.git
+cd scod-regression && pip install .
 ```
 
 
