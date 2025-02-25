@@ -18,7 +18,7 @@ import torch  # type: ignore
 from torch import nn, Tensor
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from functorch import make_functional_with_buffers, jacrev, vmap
-from functorch._src.make_functional import FunctionalModuleWithBuffers
+from functorch import FunctionalModuleWithBuffers
 
 from .distributions.distribution import DistributionLayer
 from .distributions.normal import NormalMeanParamLayer
@@ -204,7 +204,7 @@ class SCOD(nn.Module):
         if isinstance(dataset, IterableDataset):
             dataloader = iter(dataset)
         elif isinstance(dataset, Dataset):
-            dataset = DataLoader(dataset, **dataloader_kwargs)
+            dataloader = DataLoader(dataset, **dataloader_kwargs)
         else:
             raise ValueError("Dataset must be one of torch Dataset or IterableDataset.")
 
